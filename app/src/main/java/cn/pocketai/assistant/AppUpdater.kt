@@ -19,7 +19,7 @@ import java.util.concurrent.Executors
 import java.util.concurrent.atomic.AtomicBoolean
 import javax.net.ssl.HttpsURLConnection
 
-data class AvailableUpdate(val versionCode: Long, val versionName: String, val url: String, val sha256: String, val size: Long)
+data class AvailableUpdate(val versionCode: Long, val versionName: String, val url: String, val apiUrl: String, val sha256: String, val size: Long)
 
 object AppUpdater {
     private val executor = Executors.newSingleThreadExecutor()
@@ -27,13 +27,13 @@ object AppUpdater {
     private val busy = AtomicBoolean(false)
     @Volatile var status = "尚未检查更新"
     @Volatile var available: AvailableUpdate? = null
-    private fun connect(url: String): HttpsURLConnection = (URL(url).openConnection() as HttpsURLConnection).apply {
+    private fun connect(url: String, binary: Boolean = false): HttpsURLConnection = (URL(url).openConnection() as HttpsURLConnection).apply {
         connectTimeout = 20_000; readTimeout = 30_000
-        setRequestProperty("Accept", "application/vnd.github+json")
+        setRequestProperty("Accept", if (binary) "application/octet-stream" else "application/vnd.github+json")
         setRequestProperty("User-Agent", "PocketLocalAssistant/0.1")
     }
-    private fun json(url: String): JSONObject {
-        val c = connect(url)
+    private fun json(url: String, binary: Boolean = false): JSONObject {
+        val c = connect(url, binary)
         try {
             check(c.responseCode == 200 && c.url.protocol == "https") { if (c.responseCode == 404) "暂未发布可用更新" else "更新服务 HTTP ${c.responseCode}" }
             c.inputStream.use { input ->
@@ -55,7 +55,9 @@ object AppUpdater {
                     ?: error("发布缺少更新清单")
                 val manifestUrl = manifest.getString("browser_download_url")
                 check(UpdatePolicy.validAssetUrl(manifestUrl, "update.json")) { "更新来源不匹配" }
-                val info = json(manifestUrl)
+                val manifestApi = manifest.getString("url")
+                check(UpdatePolicy.validApiAssetUrl(manifestApi)) { "清单 API 来源不匹配" }
+                val info = json(manifestApi, binary = true)
                 check(info.getString("packageName") == context.packageName) { "更新包名不匹配" }
                 val filename = info.getString("fileName")
                 check(filename.matches(Regex("pocket-local-assistant-[0-9A-Za-z.\\-]+-arm64\\.apk"))) { "安装包名称不正确" }
@@ -65,9 +67,12 @@ object AppUpdater {
                 check(UpdatePolicy.validDigest(hash)) { "更新校验值不正确" }
                 val size = info.getLong("size")
                 check(size in 1..(512L * 1024 * 1024)) { "更新包大小不正确" }
-                check((0 until assets.length()).map { assets.getJSONObject(it) }.any { it.optString("browser_download_url") == url && it.optLong("size") == size }) { "发布附件与清单不匹配" }
+                val apkAsset = (0 until assets.length()).map { assets.getJSONObject(it) }.singleOrNull { it.optString("browser_download_url") == url && it.optLong("size") == size }
+                    ?: error("发布附件与清单不匹配")
+                val apiUrl = apkAsset.getString("url")
+                check(UpdatePolicy.validApiAssetUrl(apiUrl)) { "安装包 API 来源不匹配" }
                 val current = context.packageManager.getPackageInfo(context.packageName, 0).longVersionCode
-                val candidate = AvailableUpdate(info.getLong("versionCode"), info.getString("versionName"), url, hash, size)
+                val candidate = AvailableUpdate(info.getLong("versionCode"), info.getString("versionName"), url, apiUrl, hash, size)
                 check(info.getString("tag") == release.getString("tag_name")) { "更新版本标签不匹配" }
                 available = candidate.takeIf { it.versionCode > current }
                 if (available == null) "已经是最新正式版本" else "发现新版本 ${candidate.versionName}，可下载更新"
@@ -100,7 +105,7 @@ object AppUpdater {
             val partial = File(dir, "update.part"); val final = File(dir, "update.apk")
             val result = try {
                 check(dir.usableSpace > update.size + 64 * 1024 * 1024) { "存储空间不足" }
-                val c = connect(update.url)
+                val c = connect(update.apiUrl, binary = true)
                 try {
                     check(c.responseCode == 200 && c.url.protocol == "https") { "更新下载失败：HTTP ${c.responseCode}" }
                     c.inputStream.use { input -> FileOutputStream(partial).use { output ->

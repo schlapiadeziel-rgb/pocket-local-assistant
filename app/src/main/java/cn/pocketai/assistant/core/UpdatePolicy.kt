@@ -6,6 +6,12 @@ object UpdatePolicy {
     const val REPOSITORY = "schlapiadeziel-rgb/pocket-local-assistant"
     const val API = "https://api.github.com/repos/$REPOSITORY/releases/latest"
     const val PAGE = "https://github.com/$REPOSITORY/releases/latest"
+    fun validApiAssetUrl(value: String): Boolean = runCatching {
+        val uri = URI(value)
+        uri.scheme == "https" && uri.host == "api.github.com" && uri.userInfo == null &&
+            (uri.port == -1 || uri.port == 443) && uri.rawQuery == null && uri.rawFragment == null &&
+            uri.rawPath.matches(Regex("/repos/${Regex.escape(REPOSITORY)}/releases/assets/[1-9][0-9]*"))
+    }.getOrDefault(false)
     fun validAssetUrl(value: String, expectedFile: String): Boolean = runCatching {
         val uri = URI(value)
         uri.scheme == "https" && uri.host == "github.com" && uri.userInfo == null && (uri.port == -1 || uri.port == 443) &&

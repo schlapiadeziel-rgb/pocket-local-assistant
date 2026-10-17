@@ -4,6 +4,11 @@ import org.junit.Assert.*
 import org.junit.Test
 
 class UpdatePolicyTest {
+    private val apiAsset = "https://api.github.com/repos/${UpdatePolicy.REPOSITORY}/releases/assets/650362664"
+    @Test fun validApiAsset() { assertTrue(UpdatePolicy.validApiAssetUrl(apiAsset)) }
+    @Test fun foreignApiAssetRejected() { assertFalse(UpdatePolicy.validApiAssetUrl(apiAsset.replace("pocket-local-assistant", "other"))) }
+    @Test fun apiQueryRejected() { assertFalse(UpdatePolicy.validApiAssetUrl(apiAsset + "?redirect=elsewhere")) }
+    @Test fun malformedApiIdRejected() { assertFalse(UpdatePolicy.validApiAssetUrl(apiAsset + "/../file")) }
     private val base = "https://github.com/${UpdatePolicy.REPOSITORY}/releases/download/v0.2.0/"
     private val file = "pocket-local-assistant-0.2.0-arm64.apk"
     @Test fun validPinnedRepoAsset() { assertTrue(UpdatePolicy.validAssetUrl(base + file, file)) }
