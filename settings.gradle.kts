@@ -4,4 +4,4 @@ dependencyResolutionManagement {
     repositories { google(); mavenCentral() }
 }
 rootProject.name = "PocketLocalAssistant"
-include(":app")
+include(":app", ":fixture")
