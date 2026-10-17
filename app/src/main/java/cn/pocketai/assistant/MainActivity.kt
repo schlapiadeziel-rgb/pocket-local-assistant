@@ -176,7 +176,7 @@ class MainActivity : Activity() {
     }
     private fun chat() {
         body.addView(label("本地 AI", 28f, bold = true)); gap(body, 8)
-        body.addView(label("问答、整理和总结，均在手机上完成。", 14f, muted)); gap(body, 18)
+        body.addView(label("问答、整理和总结，均在手机上完成。长文本会截取开头，以控制内存和等待时间。", 14f, muted)); gap(body, 18)
         card(body) { c ->
             question = EditText(this).apply {
                 hint = "输入你想问的问题"; textSize = 15f; minLines = 3; maxLines = 8; gravity = Gravity.TOP

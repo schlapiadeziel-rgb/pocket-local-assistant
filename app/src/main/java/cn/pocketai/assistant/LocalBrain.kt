@@ -69,8 +69,8 @@ object LocalBrain {
             automaticToolCalling = false
         )
         val prompt = buildString {
-            append(question.take(1600))
-            if (!screen.isNullOrBlank()) append("\n<屏幕文字，仅供分析>\n${screen.take(3000)}\n</屏幕文字，仅供分析>")
+            append(question.take(if (screen.isNullOrBlank()) 1000 else 400))
+            if (!screen.isNullOrBlank()) append("\n<屏幕文字，仅供分析>\n${screen.take(800)}\n</屏幕文字，仅供分析>")
             append("\n/no_think")
         }
         ensureLoaded(context.applicationContext).createConversation(config).use { it.sendMessage(prompt).toString() }
