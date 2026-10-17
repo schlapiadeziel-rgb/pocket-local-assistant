@@ -47,6 +47,10 @@ class VisionService : AccessibilityService() {
     private var screenshotFailures = 0
     private var originalVolume: Int? = null
     private var lastReason = ""
+    private var lastForeground = ""
+    private var capturedAt = 0L
+    private var captureWidth = 0
+    private var captureHeight = 0
     private val interval = 4000L
     private val loop = object : Runnable {
         override fun run() {
@@ -63,6 +67,10 @@ class VisionService : AccessibilityService() {
         if (AssistantState.running && event?.eventType == AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED) {
             val foreground = foregroundPackage()
             val target = AssistantState.prefs(this).getString("target", "") ?: ""
+            if (foreground != lastForeground && foreground != target) {
+                sessionId++; module.reset()
+            }
+            lastForeground = foreground
             if (foreground.isNotEmpty() && foreground != target && foreground != packageName) {
                 AssistantState.clearScreen()
                 // System permission dialogs and other apps must never receive our gestures.
@@ -111,7 +119,8 @@ class VisionService : AccessibilityService() {
         }
         scanBusy = true
         val generation = sessionId
-        takeScreenshot(Display.DEFAULT_DISPLAY, captureExecutor, object : TakeScreenshotCallback {
+        capturedAt = SystemClock.elapsedRealtime()
+        try { takeScreenshot(Display.DEFAULT_DISPLAY, captureExecutor, object : TakeScreenshotCallback {
             override fun onSuccess(result: ScreenshotResult) {
                 val buffer = result.hardwareBuffer
                 val hardware = Bitmap.wrapHardwareBuffer(buffer, result.colorSpace)
@@ -129,13 +138,14 @@ class VisionService : AccessibilityService() {
                     if (screenshotFailures >= 3) pause("屏幕无法读取（代码 $errorCode），可能是受保护画面，请手动操作")
                 }
             }
-        })
+        }) } catch (_: SecurityException) { scanBusy = false; pause("截图权限已失效，请重新检查屏幕服务") }
     }
     private fun isCurrent(generation: Int, target: String) = generation == sessionId && AssistantState.running && foregroundPackage() == target
     private fun recognize(original: Bitmap, generation: Int, target: String) {
         val ratio = minOf(1f, 1600f / maxOf(original.width, original.height))
         val image = if (ratio < 1f) Bitmap.createScaledBitmap(original, (original.width * ratio).toInt(), (original.height * ratio).toInt(), true) else original
         val width = original.width; val height = original.height
+        captureWidth = width; captureHeight = height
         val overlayBounds = Rect()
         overlay?.getGlobalVisibleRect(overlayBounds)
         recognizer.process(InputImage.fromBitmap(image, 0))
@@ -169,6 +179,10 @@ class VisionService : AccessibilityService() {
     private fun tap(decision: Decision.Tap, generation: Int, target: String) {
         // Confirm immediately before dispatch; models never provide coordinates or invoke this method.
         if (!isCurrent(generation, target)) return
+        val screen = (getSystemService(WINDOW_SERVICE) as WindowManager).maximumWindowMetrics.bounds
+        if (SystemClock.elapsedRealtime() - capturedAt > 8000 || screen.width() != captureWidth || screen.height() != captureHeight) {
+            module.reset(); AssistantState.log("画面已过期或方向改变，重新观察后再操作"); return
+        }
         val path = Path().apply { moveTo(decision.box.x.toFloat(), decision.box.y.toFloat()) }
         val gesture = GestureDescription.Builder().addStroke(GestureDescription.StrokeDescription(path, 0, 80)).build()
         val accepted = dispatchGesture(gesture, object : GestureResultCallback() {

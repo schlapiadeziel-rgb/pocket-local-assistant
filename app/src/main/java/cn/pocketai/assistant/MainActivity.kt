@@ -278,7 +278,7 @@ class MainActivity : Activity() {
             }, LinearLayout.LayoutParams(-1, dp(48))); gap(c)
             c.addView(button("清除识别文字") { AssistantState.clearScreen(); message("已清除内存中的屏幕文字") }, LinearLayout.LayoutParams(-1, dp(48)))
         }
-        body.addView(label("隐私：不读取账户口令，不导入浏览器会话，不注入网页脚本。网络仅用于你主动发起的模型下载。源码与模型许可证分开提供。", 12f, muted))
+        body.addView(label("隐私：不主动读取账户口令或浏览器会话，不注入网页脚本。可见屏幕文字按你的授权在本机处理。网络用于你主动发起的模型下载及应用更新。源码与模型许可证分开提供。", 12f, muted))
     }
     private fun message(text: String) {
         if (!isFinishing && !isDestroyed) AlertDialog.Builder(this).setMessage(text).setPositiveButton("知道了", null).show()
