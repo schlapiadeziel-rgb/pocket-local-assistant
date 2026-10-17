@@ -226,8 +226,9 @@ class MainActivity : Activity() {
             modelStatus = label(modelDescription(), 13f, accent); c.addView(modelStatus); gap(c)
             c.addView(button("下载推荐模型", true) {
                 AlertDialog.Builder(this).setTitle("下载约 585 MB 模型")
-                    .setMessage("从 LiteRT Community 的模型仓库下载到本机。建议使用 Wi-Fi，并保持本应用前台。下载完成后不会再为推理联网。")
-                    .setPositiveButton("开始下载") { _, _ -> LocalBrain.download(applicationContext) { message(it) } }
+                    .setMessage("建议使用 Wi-Fi，并保持本应用前台。源站无法连接时可选择第三方 hf-mirror.com 镜像；两者均校验同一固定 SHA-256，不符合就拒绝安装。下载站会收到常规网络请求信息。")
+                    .setPositiveButton("源站下载") { _, _ -> LocalBrain.download(applicationContext) { message(it) } }
+                    .setNeutralButton("镜像下载") { _, _ -> LocalBrain.download(applicationContext, mirror = true) { message(it) } }
                     .setNegativeButton("取消", null).show()
             }, LinearLayout.LayoutParams(-1, dp(48))); gap(c)
             rowButtons(c, "导入模型" to {

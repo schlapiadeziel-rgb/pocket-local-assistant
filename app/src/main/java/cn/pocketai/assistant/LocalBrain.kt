@@ -98,11 +98,11 @@ object LocalBrain {
         } finally { temp.delete() }
     }
     fun cancelDownload() { cancel.set(true) }
-    fun download(context: Context, callback: (String) -> Unit) = task(callback) {
+    fun download(context: Context, mirror: Boolean = false, callback: (String) -> Unit) = task(callback) {
         val dest = modelFile(context); dest.parentFile!!.mkdirs()
         check(dest.parentFile!!.usableSpace > MODEL_BYTES + 128 * 1024 * 1024) { "存储不足，请至少保留 750 MB 空间" }
         val temp = File(dest.parentFile, "download.part")
-        val connection = URL(MODEL_URL).openConnection() as HttpsURLConnection
+        val connection = URL(if (mirror) MODEL_URL.replace("https://huggingface.co/", "https://hf-mirror.com/") else MODEL_URL).openConnection() as HttpsURLConnection
         connection.connectTimeout = 30_000; connection.readTimeout = 30_000
         try {
             check(connection.responseCode == 200 && connection.url.protocol == "https") { "模型下载失败：HTTP ${connection.responseCode}" }
