@@ -1,0 +1,11 @@
+<resources>
+    <style name="AppTheme" parent="android:style/Theme.Material.Light.NoActionBar">
+        <item name="android:fontFamily">sans</item>
+        <item name="android:colorAccent">#175C56</item>
+        <item name="android:windowLightStatusBar">true</item>
+        <item name="android:statusBarColor">#F3F5F2</item>
+        <item name="android:navigationBarColor">#F3F5F2</item>
+        <item name="android:windowActionModeOverlay">true</item>
+    </style>
+    <string name="accessibility_description">经你开启后，在所选应用前台时截屏并在本机识别文字。课程模块只在识别到播放结束和明确的下一节按钮时点击。验证、异常脚本提示、答题和未知状态会暂停。浮窗可随时暂停或停止。不会上传屏幕，也不会接管其他应用。</string>
+</resources>
