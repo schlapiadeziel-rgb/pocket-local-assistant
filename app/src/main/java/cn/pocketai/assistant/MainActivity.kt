@@ -31,7 +31,7 @@ class MainActivity : Activity() {
     private val ink = Color.rgb(25, 42, 39)
     private val muted = Color.rgb(98, 113, 109)
     private val accent = Color.rgb(23, 92, 86)
-    private val background = Color.rgb(243, 245, 242)
+    private val pageColor = Color.rgb(243, 245, 242)
     private lateinit var body: LinearLayout
     private lateinit var stateLabel: TextView
     private var tab = 0
@@ -87,7 +87,7 @@ class MainActivity : Activity() {
         parent.addView(card, LinearLayout.LayoutParams(-1, -2).apply { bottomMargin = dp(14) })
     }
     private fun buildShell() {
-        val shell = column().apply { setBackgroundColor(background) }
+        val shell = column().apply { setBackgroundColor(pageColor) }
         shell.setOnApplyWindowInsetsListener { v, insets ->
             val bars = insets.getInsets(WindowInsets.Type.systemBars())
             v.setPadding(bars.left, bars.top, bars.right, bars.bottom); insets
@@ -278,7 +278,7 @@ class MainActivity : Activity() {
             }, LinearLayout.LayoutParams(-1, dp(48))); gap(c)
             c.addView(button("清除识别文字") { AssistantState.clearScreen(); message("已清除内存中的屏幕文字") }, LinearLayout.LayoutParams(-1, dp(48)))
         }
-        body.addView(label("隐私：不主动读取账户口令或浏览器会话，不注入网页脚本。可见屏幕文字按你的授权在本机处理。网络用于你主动发起的模型下载及应用更新。源码与模型许可证分开提供。", 12f, muted))
+        body.addView(label("隐私：可见屏幕文字按你的授权在本机处理，不保存屏幕图像，不注入网页脚本。GitHub 更新、模型下载需要联网。ML Kit SDK 可能向 Google 发送性能和使用指标；图像、文字和识别结果不随指标上传。源码与模型许可证分开提供。", 12f, muted))
     }
     private fun message(text: String) {
         if (!isFinishing && !isDestroyed) AlertDialog.Builder(this).setMessage(text).setPositiveButton("知道了", null).show()
