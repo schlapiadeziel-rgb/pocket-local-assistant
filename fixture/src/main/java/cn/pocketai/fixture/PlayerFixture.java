@@ -44,7 +44,8 @@ public class PlayerFixture extends Activity {
         status = text("", 24); page.addView(status);
         Button next = new Button(this); next.setText("下一节"); next.setTextSize(26);
         next.setOnClickListener(v -> { if (seconds >= 12 && !blocked) { lesson++; seconds = 0; update(); } });
-        page.addView(next, new LinearLayout.LayoutParams(-1, 100));
+        next.setMinHeight((int) (64 * getResources().getDisplayMetrics().density));
+        page.addView(next, new LinearLayout.LayoutParams(-1, -2));
         Button verify = new Button(this); verify.setText("显示验证提示"); verify.setTextSize(18);
         verify.setOnClickListener(v -> { blocked = !blocked; update(); }); page.addView(verify);
         setContentView(page); update(); handler.postDelayed(tick, 1000);
