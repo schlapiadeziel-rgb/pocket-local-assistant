@@ -42,9 +42,10 @@ class CourseModule : AssistantModule {
     private var lastTap = Long.MIN_VALUE
     private var awaitingNewLesson = false
     private var previousEnd = -1
+    private var endedTarget: Box? = null
     override fun reset() {
         lastProgress = -1; lastTotal = -1; advanced = false; endedFrames = 0
-        lastTap = Long.MIN_VALUE; awaitingNewLesson = false; previousEnd = -1
+        lastTap = Long.MIN_VALUE; awaitingNewLesson = false; previousEnd = -1; endedTarget = null
     }
     private fun seconds(s: String): Int? {
         val p = s.trim().split(':').map { it.toIntOrNull() ?: return null }
@@ -76,13 +77,17 @@ class CourseModule : AssistantModule {
         val explicitEnd = frame.lines.any { it.text.replace(" ", "") in setOf("播放结束", "本节视频已播放完毕", "本节学习已完成") }
         // Never use a directory's generic 已完成 or a model guess as completion evidence.
         val ended = explicitEnd || (advanced && position != null && total != null && position == total && total > 0)
-        endedFrames = if (ended) endedFrames + 1 else 0
-        if (endedFrames < 2) return Decision.Wait(if (position != null) "观察播放 $position / $total 秒" else "观察中：请让播放时间和下一节按钮可见")
-        if (lastTap != Long.MIN_VALUE && frame.at - lastTap < 15_000) return Decision.Wait("切换冷却中")
         val targets = frame.lines.filter {
             it.text.replace(Regex("\\s+"), "") in setOf("下一节", "下一集", "下一个视频") && it.box.inside(frame.width, frame.height)
         }
-        if (targets.size != 1) return Decision.Wait("已识别播放结束，等待唯一可见的下一节按钮")
+        val candidate = targets.singleOrNull()?.box
+        val old = endedTarget
+        val stable = candidate != null && old != null && kotlin.math.abs(candidate.x - old.x) <= 24 && kotlin.math.abs(candidate.y - old.y) <= 24
+        endedFrames = if (!ended || candidate == null) 0 else if (stable) endedFrames + 1 else 1
+        endedTarget = if (ended) candidate else null
+        if (ended && targets.size != 1) return Decision.Wait("已识别播放结束，等待唯一可见的下一节按钮")
+        if (endedFrames < 2) return Decision.Wait(if (position != null) "观察播放 $position / $total 秒" else "观察中：请让播放时间和下一节按钮可见")
+        if (lastTap != Long.MIN_VALUE && frame.at - lastTap < 15_000) return Decision.Wait("切换冷却中")
         val target = targets.single()
         lastTap = frame.at; awaitingNewLesson = true; previousEnd = position ?: lastProgress
         return Decision.Tap(target.box, "视频已结束，点击「${target.text}」")
