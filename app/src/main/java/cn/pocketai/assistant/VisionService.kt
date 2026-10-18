@@ -33,6 +33,7 @@ import cn.pocketai.assistant.core.Decision
 import cn.pocketai.assistant.core.ModuleRegistry
 import cn.pocketai.assistant.core.ScreenFrame
 import cn.pocketai.assistant.core.ScreenLine
+import cn.pocketai.assistant.core.TextAccent
 import com.google.mlkit.vision.common.InputImage
 import com.google.mlkit.vision.text.TextRecognition
 import com.google.mlkit.vision.text.chinese.ChineseTextRecognizerOptions
@@ -173,7 +174,7 @@ class VisionService : AccessibilityService() {
                     val rect = line.boundingBox ?: return@mapNotNull null
                     val box = Box((rect.left / ratio).toInt(), (rect.top / ratio).toInt(), (rect.right / ratio).toInt(), (rect.bottom / ratio).toInt())
                     if (Rect.intersects(overlayBounds, Rect(box.left, box.top, box.right, box.bottom))) return@mapNotNull null
-                    ScreenLine(line.text, box)
+                    ScreenLine(line.text, box, hasGreenText(image, rect))
                 }
                 val frame = ScreenFrame(lines, width, height, target, SystemClock.elapsedRealtime())
                 AssistantState.lastScreenText = frame.text; AssistantState.recognizedLines = lines.size; AssistantState.frameCount++
@@ -192,6 +193,15 @@ class VisionService : AccessibilityService() {
                 if (image !== original) image.recycle()
                 original.recycle(); scanBusy = false
             }
+    }
+    private fun hasGreenText(image: Bitmap, box: Rect): Boolean {
+        var green = 0; var sampled = 0
+        val step = maxOf(1, minOf(box.width(), box.height()) / 18)
+        for (y in box.top.coerceAtLeast(0) until box.bottom.coerceAtMost(image.height) step step)
+            for (x in box.left.coerceAtLeast(0) until box.right.coerceAtMost(image.width) step step) {
+                sampled++; if (TextAccent.green(image.getPixel(x, y))) green++
+            }
+        return green >= 5 && green * 100 >= sampled * 3
     }
     private fun tap(decision: Decision.Tap, generation: Int, target: String) {
         // Confirm immediately before dispatch; models never provide coordinates or invoke this method.

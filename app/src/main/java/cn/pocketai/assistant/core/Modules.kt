@@ -5,7 +5,7 @@ data class Box(val left: Int, val top: Int, val right: Int, val bottom: Int) {
     val y get() = (top + bottom) / 2
     fun inside(width: Int, height: Int) = left >= 0 && top >= 0 && right <= width && bottom <= height && right > left && bottom > top
 }
-data class ScreenLine(val text: String, val box: Box)
+data class ScreenLine(val text: String, val box: Box, val accented: Boolean = false)
 data class ScreenFrame(val lines: List<ScreenLine>, val width: Int, val height: Int, val packageName: String, val at: Long) {
     val text get() = lines.joinToString("\n") { it.text }
 }
@@ -104,6 +104,6 @@ class ObserveModule : AssistantModule {
     } ?: Decision.Wait("已在本机识别 ${frame.lines.size} 行文字")
 }
 object ModuleRegistry {
-    fun available(): List<AssistantModule> = listOf(CourseModule(), ObserveModule())
+    fun available(): List<AssistantModule> = listOf(DirectoryCourseModule(), CourseModule(), ObserveModule())
     fun create(id: String): AssistantModule = available().firstOrNull { it.id == id } ?: ObserveModule()
 }
