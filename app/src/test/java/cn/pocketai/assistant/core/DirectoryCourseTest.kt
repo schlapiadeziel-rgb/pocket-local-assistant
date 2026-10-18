@@ -109,6 +109,10 @@ class DirectoryCourseTest {
         val m = DirectoryCourseModule()
         repeat(4) { assertTrue(m.observe(frame(it * 4000L, "00:05 / 01:00")) is Decision.Wait) }
     }
+    @Test fun mergedOcrTabLineStillIdentifiesPlayerBoundary() {
+        val f = frame().let { it.copy(lines = it.lines.filterNot { l -> l.text in setOf("教程", "课程提醒") } + ScreenLine("教程 课程提醒", Box(20, 590, 390, 630))) }
+        assertEquals("1.3.1", TutorialDirectory.read(f)!!.current.id)
+    }
     @Test fun greenTextClassifierRejectsPurpleBackgroundAndGrayCheckmarks() {
         assertTrue(TextAccent.green(0xff34b993.toInt()))
         assertFalse(TextAccent.green(0xfff0e7ff.toInt()))

@@ -86,14 +86,14 @@ data class TutorialDirectory(val current: DirectoryEntry, val next: DirectoryEnt
         private val LEAF = Regex("^(\\d{1,3}(?:\\.\\d{1,3}){2,4})(?:\\s|[A-Za-z\\p{IsHan}]).+")
         fun read(frame: ScreenFrame): TutorialDirectory? {
             if (frame.packageName !in setOf("com.able.wisdomtree", "cn.pocketai.fixture") || frame.height <= frame.width) return null
-            val tabs = frame.lines.filter { it.text.trim() in setOf("教程", "课程提醒") }
-            val tutorial = tabs.singleOrNull { it.text.trim() == "教程" } ?: return null
-            val reminder = tabs.singleOrNull { it.text.trim() == "课程提醒" } ?: return null
+            val merged = frame.lines.singleOrNull { it.text.replace(Regex("\\s+"), "") == "教程课程提醒" }
+            val tutorial = merged ?: frame.lines.singleOrNull { it.text.trim() == "教程" } ?: return null
+            val reminder = if (merged != null) merged else frame.lines.singleOrNull { it.text.trim() == "课程提醒" } ?: return null
             val boundary = minOf(tutorial.box.top, reminder.box.top)
             if (boundary !in frame.height / 8..frame.height / 2 ||
                 kotlin.math.abs(tutorial.box.y - reminder.box.y) > frame.height / 40 ||
-                tutorial.box.left > frame.width / 3 || reminder.box.left <= tutorial.box.left) return null
-            val footer = frame.lines.filter { it.text.trim() in setOf("资料", "缓存") && it.box.top > boundary }
+                tutorial.box.left > frame.width / 3 || (merged == null && reminder.box.left <= tutorial.box.left)) return null
+            val footer = frame.lines.filter { it.text.replace(Regex("\\s+"), "") in setOf("资料", "缓存", "资料缓存") && it.box.top > boundary }
                 .minOfOrNull { it.box.top } ?: frame.height * 9 / 10
             val entries = frame.lines.mapNotNull { line ->
                 if (!line.box.inside(frame.width, frame.height) || line.box.top <= tutorial.box.bottom ||
