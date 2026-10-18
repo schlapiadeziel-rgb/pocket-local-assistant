@@ -51,7 +51,7 @@ class MainActivity : Activity() {
             updateStatus?.showText(AppUpdater.status)
             answerView?.showText(LocalBrain.answer)
             generateButton?.isEnabled = !LocalBrain.isBusy()
-            logsView?.showText("识别 ${AssistantState.frameCount} 帧 · 点击 ${AssistantState.tapCount} 次\n\n${AssistantState.logs()}")
+            logsView?.showText("识别 ${AssistantState.frameCount} 帧 · 点击 ${AssistantState.tapCount} 次\n${AssistantState.directoryStatus}\n\n${AssistantState.logs()}")
             main.postDelayed(this, 1000)
         }
     }

@@ -1,6 +1,7 @@
 package cn.pocketai.assistant
 
 import android.accessibilityservice.AccessibilityService
+import android.accessibilityservice.AccessibilityServiceInfo
 import android.accessibilityservice.GestureDescription
 import android.app.KeyguardManager
 import android.content.Context
@@ -35,6 +36,7 @@ import cn.pocketai.assistant.core.ScreenFrame
 import cn.pocketai.assistant.core.ScreenLine
 import cn.pocketai.assistant.core.TextAccent
 import cn.pocketai.assistant.core.RowMarkerVision
+import cn.pocketai.assistant.core.RowMark
 import cn.pocketai.assistant.core.ScreenMarker
 import com.google.mlkit.vision.common.InputImage
 import com.google.mlkit.vision.text.TextRecognition
@@ -69,6 +71,11 @@ class VisionService : AccessibilityService() {
         }
     }
     override fun onServiceConnected() {
+        // Decorative status ImageViews have no spoken label; request their visible bounds too.
+        serviceInfo = serviceInfo.apply {
+            flags = flags or AccessibilityServiceInfo.FLAG_INCLUDE_NOT_IMPORTANT_VIEWS or
+                AccessibilityServiceInfo.FLAG_REPORT_VIEW_IDS
+        }
         AssistantState.service = this
         AssistantState.log("屏幕服务已连接，等待手动开始")
         main.post(loop)
@@ -177,7 +184,8 @@ class VisionService : AccessibilityService() {
             panel.getLocationOnScreen(location)
             overlayBounds.set(location[0], location[1], location[0] + panel.width, location[1] + panel.height)
         }
-        val markers = visibleRowIcons(target).mapNotNull { rect ->
+        val icons = visibleRowIcons(target)
+        val markers = icons.mapNotNull { rect ->
             if (Rect.intersects(overlayBounds, rect) || rect.left < 0 || rect.top < 0 || rect.right > width || rect.bottom > height) return@mapNotNull null
             val pixels = IntArray(rect.width() * rect.height())
             original.getPixels(pixels, 0, rect.width(), rect.left, rect.top, rect.width(), rect.height())
@@ -187,6 +195,9 @@ class VisionService : AccessibilityService() {
             .addOnSuccessListener { result ->
                 if (!isCurrent(generation, target)) return@addOnSuccessListener
                 screenshotFailures = 0
+                AssistantState.directoryStatus = if (target == "com.able.wisdomtree")
+                    "可见图标 ${icons.size} · 已完成 ${markers.count { it.kind == RowMark.COMPLETED }} · 待播 ${markers.count { it.kind == RowMark.PLAYABLE }} · 播放中 ${markers.count { it.kind == RowMark.PLAYING }} · 不明 ${markers.count { it.kind == RowMark.UNKNOWN }} · 遮挡或越界 ${icons.size - markers.size}"
+                else "当前应用不使用目录图标识别"
                 val lines = result.textBlocks.flatMap { it.lines }.mapNotNull { line ->
                     val rect = line.boundingBox ?: return@mapNotNull null
                     val box = Box((rect.left / ratio).toInt(), (rect.top / ratio).toInt(), (rect.right / ratio).toInt(), (rect.bottom / ratio).toInt())

@@ -16,6 +16,7 @@ object AssistantState {
     @Volatile var recognizedLines = 0
     @Volatile var frameCount = 0
     @Volatile var tapCount = 0
+    @Volatile var directoryStatus = "尚未读取目录图标"
     @Volatile var service: VisionService? = null
     fun prefs(context: Context) = context.getSharedPreferences("assistant", Context.MODE_PRIVATE)
     @Synchronized fun log(text: String) {
@@ -26,5 +27,5 @@ object AssistantState {
         main.post { service?.updateOverlay() }
     }
     @Synchronized fun logs(): String = entries.joinToString("\n")
-    fun clearScreen() { lastScreenText = ""; recognizedLines = 0 }
+    fun clearScreen() { lastScreenText = ""; recognizedLines = 0; directoryStatus = "尚未读取目录图标" }
 }
