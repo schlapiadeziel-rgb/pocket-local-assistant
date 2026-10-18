@@ -6,7 +6,9 @@ data class Box(val left: Int, val top: Int, val right: Int, val bottom: Int) {
     fun inside(width: Int, height: Int) = left >= 0 && top >= 0 && right <= width && bottom <= height && right > left && bottom > top
 }
 data class ScreenLine(val text: String, val box: Box, val accented: Boolean = false)
-data class ScreenFrame(val lines: List<ScreenLine>, val width: Int, val height: Int, val packageName: String, val at: Long) {
+enum class RowMark { COMPLETED, PLAYABLE, PLAYING, UNKNOWN }
+data class ScreenMarker(val kind: RowMark, val box: Box)
+data class ScreenFrame(val lines: List<ScreenLine>, val width: Int, val height: Int, val packageName: String, val at: Long, val markers: List<ScreenMarker> = emptyList()) {
     val text get() = lines.joinToString("\n") { it.text }
 }
 sealed class Decision {

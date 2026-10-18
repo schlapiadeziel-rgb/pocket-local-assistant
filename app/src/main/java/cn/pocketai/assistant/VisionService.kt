@@ -34,6 +34,8 @@ import cn.pocketai.assistant.core.ModuleRegistry
 import cn.pocketai.assistant.core.ScreenFrame
 import cn.pocketai.assistant.core.ScreenLine
 import cn.pocketai.assistant.core.TextAccent
+import cn.pocketai.assistant.core.RowMarkerVision
+import cn.pocketai.assistant.core.ScreenMarker
 import com.google.mlkit.vision.common.InputImage
 import com.google.mlkit.vision.text.TextRecognition
 import com.google.mlkit.vision.text.chinese.ChineseTextRecognizerOptions
@@ -175,6 +177,12 @@ class VisionService : AccessibilityService() {
             panel.getLocationOnScreen(location)
             overlayBounds.set(location[0], location[1], location[0] + panel.width, location[1] + panel.height)
         }
+        val markers = visibleRowIcons(target).mapNotNull { rect ->
+            if (Rect.intersects(overlayBounds, rect) || rect.left < 0 || rect.top < 0 || rect.right > width || rect.bottom > height) return@mapNotNull null
+            val pixels = IntArray(rect.width() * rect.height())
+            original.getPixels(pixels, 0, rect.width(), rect.left, rect.top, rect.width(), rect.height())
+            ScreenMarker(RowMarkerVision.classify(rect.width(), rect.height(), pixels), Box(rect.left, rect.top, rect.right, rect.bottom))
+        }
         recognizer.process(InputImage.fromBitmap(image, 0))
             .addOnSuccessListener { result ->
                 if (!isCurrent(generation, target)) return@addOnSuccessListener
@@ -185,7 +193,7 @@ class VisionService : AccessibilityService() {
                     if (Rect.intersects(overlayBounds, Rect(box.left, box.top, box.right, box.bottom))) return@mapNotNull null
                     ScreenLine(line.text, box, hasGreenText(image, rect))
                 }
-                val frame = ScreenFrame(lines, width, height, target, SystemClock.elapsedRealtime())
+                val frame = ScreenFrame(lines, width, height, target, SystemClock.elapsedRealtime(), markers)
                 AssistantState.lastScreenText = frame.text; AssistantState.recognizedLines = lines.size; AssistantState.frameCount++
                 when (val decision = module.observe(frame)) {
                     is Decision.Pause -> pause(decision.reason)
@@ -202,6 +210,24 @@ class VisionService : AccessibilityService() {
                 if (image !== original) image.recycle()
                 original.recycle(); scanBusy = false
             }
+    }
+    @Suppress("DEPRECATION")
+    private fun visibleRowIcons(target: String): List<Rect> {
+        if (target != "com.able.wisdomtree") return emptyList()
+        val root = rootInActiveWindow ?: return emptyList()
+        val nodes = ArrayDeque<android.view.accessibility.AccessibilityNodeInfo>(); nodes.add(root)
+        val result = mutableListOf<Rect>(); var visited = 0
+        while (nodes.isNotEmpty() && visited++ < 1200) {
+            val node = nodes.removeFirst()
+            if (node.isVisibleToUser && node.packageName?.toString() == target && node.viewIdResourceName == "$target:id/ico") {
+                val rect = Rect(); node.getBoundsInScreen(rect)
+                if (rect.width() in 8..512 && rect.height() in 8..512) result += rect
+            }
+            for (index in 0 until node.childCount) node.getChild(index)?.let { nodes.add(it) }
+            node.recycle()
+        }
+        nodes.forEach { it.recycle() }
+        return result
     }
     private fun hasGreenText(image: Bitmap, box: Rect): Boolean {
         var green = 0; var sampled = 0

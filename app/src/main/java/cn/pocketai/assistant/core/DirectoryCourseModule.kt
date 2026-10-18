@@ -4,7 +4,7 @@ package cn.pocketai.assistant.core
 class DirectoryCourseModule : AssistantModule {
     override val id = "directory"
     override val title = "目录连播"
-    override val description = "适配知到竖屏教程目录：识别绿色当前节，轻触显示播放进度；确认结束后点可见的后一节。请让当前节和后一节同时可见。"
+    override val description = "知到竖屏目录：自动跳过右侧带 √ 的已完成小节，只选择明确的未完成播放图标；看不清就等待。进入课程播放后点浮窗开始。"
     private val playback = CourseModule()
     private var lesson = ""
     private var lastAt = -1L
@@ -14,10 +14,13 @@ class DirectoryCourseModule : AssistantModule {
     private var revealAttempts = 0
     private var pendingAt = -1L
     private var pendingLesson = ""
+    private var completedFrames = 0
+    private var completedTarget: Box? = null
 
     override fun reset() {
         playback.reset(); lesson = ""; lastAt = -1L; lastClockAt = -1L
         lastRevealAt = -1L; missingFrames = 0; revealAttempts = 0; pendingAt = -1L; pendingLesson = ""
+        completedFrames = 0; completedTarget = null
     }
 
     override fun observe(frame: ScreenFrame): Decision {
@@ -39,6 +42,21 @@ class DirectoryCourseModule : AssistantModule {
         if (lesson != page.current.id) {
             playback.reset(); lesson = page.current.id; lastClockAt = -1L
             lastRevealAt = -1L; missingFrames = 0; revealAttempts = 0
+            completedFrames = 0; completedTarget = null
+        }
+        if (page.current.mark == RowMark.COMPLETED) {
+            val next = page.next ?: return Decision.Wait("当前节已学完；请滚动目录，找到右侧为播放图标的未完成小节")
+            val old = completedTarget
+            completedFrames = if (old != null && kotlin.math.abs(old.x - next.box.x) <= 24 && kotlin.math.abs(old.y - next.box.y) <= 24) completedFrames + 1 else 1
+            completedTarget = next.box
+            if (completedFrames < 2) return Decision.Wait("已学完 ${page.current.id}；正在核对未完成小节 ${next.id}")
+            pendingAt = frame.at; pendingLesson = page.current.id
+            return Decision.Tap(next.box, "跳过带勾的已完成小节，打开未完成目录 ${next.id}")
+        }
+        completedFrames = 0; completedTarget = null
+        if (page.current.mark != RowMark.PLAYING) {
+            playback.reset()
+            return Decision.Wait("当前节的完成/播放图标不清楚，请移开遮挡后重试")
         }
         val player = frame.lines.filter { it.box.bottom <= page.playerBottom && it.box.top >= frame.height / 40 }
         val clocks = player.filter { CLOCK.containsMatchIn(it.text) }
@@ -80,7 +98,7 @@ class DirectoryCourseModule : AssistantModule {
     }
 }
 
-data class DirectoryEntry(val id: String, val box: Box, val accented: Boolean)
+data class DirectoryEntry(val id: String, val box: Box, val accented: Boolean, val mark: RowMark = RowMark.UNKNOWN)
 data class TutorialDirectory(val current: DirectoryEntry, val next: DirectoryEntry?, val playerTop: Int, val playerBottom: Int) {
     companion object {
         private val LEAF = Regex("^(\\d{1,3}(?:\\.\\d{1,3}){2,4})(?:\\s|[A-Za-z\\p{IsHan}]).+")
@@ -102,9 +120,23 @@ data class TutorialDirectory(val current: DirectoryEntry, val next: DirectoryEnt
                 DirectoryEntry(id, line.box, line.accented)
             }.sortedBy { it.box.top }
             if (entries.map { it.id }.distinct().size != entries.size) return null
-            val current = entries.singleOrNull { it.accented } ?: return null
-            val index = entries.indexOf(current)
-            val next = entries.getOrNull(index + 1)?.takeIf { adjacent(current.id, it.id) }
+            val marked = entries.mapIndexed { index, entry ->
+                val duration = frame.lines.filter { it.box.top > entry.box.top && it.box.top < entry.box.top + frame.height / 8 &&
+                    it.box.left < frame.width / 2 && it.text.replace(" ", "").startsWith("时长") }.minByOrNull { it.box.top }
+                val rowBottom = minOf(entries.getOrNull(index + 1)?.box?.top ?: footer,
+                    duration?.box?.bottom?.plus(entry.box.bottom - entry.box.top) ?: (entry.box.top + frame.height / 12))
+                val marker = frame.markers.filter { it.box.x > frame.width * 3 / 4 && it.box.y >= entry.box.top - 12 && it.box.y < rowBottom }.singleOrNull()
+                entry.copy(mark = marker?.kind ?: RowMark.UNKNOWN)
+            }
+            val current = marked.singleOrNull { it.accented } ?: return null
+            var previous = current
+            var next: DirectoryEntry? = null
+            for (entry in marked.drop(marked.indexOf(current) + 1)) {
+                if (!adjacent(previous.id, entry.id)) break
+                if (entry.mark == RowMark.PLAYABLE) { next = entry; break }
+                if (entry.mark != RowMark.COMPLETED) break
+                previous = entry
+            }
             return TutorialDirectory(current, next, frame.height / 25, boundary)
         }
         private fun adjacent(current: String, next: String): Boolean {

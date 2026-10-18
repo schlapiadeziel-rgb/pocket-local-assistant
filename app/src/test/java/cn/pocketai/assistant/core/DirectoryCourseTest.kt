@@ -17,7 +17,9 @@ class DirectoryCourseTest {
         )
         clock?.let { lines += ScreenLine(it, Box(50, 480, 430, 530)) }
         next?.let { lines += ScreenLine("$it Next lesson", nextBox) }
-        return ScreenFrame(lines + extra, 1080, 1920, "com.able.wisdomtree", at)
+        val markers = listOf(ScreenMarker(RowMark.PLAYING, Box(900, 820, 980, 900))) +
+            if (next != null) listOf(ScreenMarker(RowMark.PLAYABLE, Box(900, 1020, 980, 1100))) else emptyList()
+        return ScreenFrame(lines + extra, 1080, 1920, "com.able.wisdomtree", at, markers)
     }
     private fun finish(m: DirectoryCourseModule): Decision {
         m.observe(frame(0, "00:52 / 01:00")); m.observe(frame(4000, "00:56 / 01:00"))
@@ -118,5 +120,31 @@ class DirectoryCourseTest {
         assertFalse(TextAccent.green(0xfff0e7ff.toInt()))
         assertFalse(TextAccent.green(0xffa5a5a5.toInt()))
         assertFalse(TextAccent.green(0xffffffff.toInt()))
+    }
+    private fun completed(at: Long, nextMark: RowMark = RowMark.PLAYABLE): ScreenFrame = frame(at).copy(markers = listOf(
+        ScreenMarker(RowMark.COMPLETED, Box(900, 820, 980, 900)), ScreenMarker(nextMark, Box(900, 1020, 980, 1100))))
+    @Test fun completedCurrentSelectsUnfinishedOnlyAfterTwoObservations() {
+        val m = DirectoryCourseModule(); assertTrue(m.observe(completed(0)) is Decision.Wait)
+        val d = m.observe(completed(4000)); assertTrue(d is Decision.Tap); assertEquals(nextBox, (d as Decision.Tap).box)
+    }
+    @Test fun allCompletedRowsWaitWithoutReplayingOrRevealingPlayer() {
+        val m = DirectoryCourseModule()
+        repeat(6) { assertTrue(m.observe(completed(it * 4000L, RowMark.COMPLETED)) is Decision.Wait) }
+    }
+    @Test fun unknownMarkerPreventsSelection() {
+        val m = DirectoryCourseModule()
+        repeat(3) { assertTrue(m.observe(completed(it * 4000L, RowMark.UNKNOWN)) is Decision.Wait) }
+        assertTrue(m.observe(frame().copy(markers = emptyList())) is Decision.Wait)
+    }
+    @Test fun completedRowsCanBeSkippedOnlyWhenEveryIntermediateRowIsKnown() {
+        val third = ScreenLine("1.3.3 Unfinished", Box(110, 1220, 750, 1275))
+        val base = completed(0, RowMark.COMPLETED)
+        val f = base.copy(lines = base.lines + third, markers = base.markers + ScreenMarker(RowMark.PLAYABLE, Box(900, 1220, 980, 1300)))
+        assertEquals("1.3.3", TutorialDirectory.read(f)!!.next!!.id)
+        assertNull(TutorialDirectory.read(f.copy(markers = f.markers.map { if (it.box.top == 1020) it.copy(kind = RowMark.UNKNOWN) else it }))!!.next)
+    }
+    @Test fun completedRowsDoNotBypassQuizGuard() {
+        val f = completed(4000).let { it.copy(lines = it.lines + ScreenLine("判断题", Box(30, 220, 700, 260))) }
+        val m = DirectoryCourseModule(); m.observe(completed(0)); assertTrue(m.observe(f) is Decision.Pause)
     }
 }
