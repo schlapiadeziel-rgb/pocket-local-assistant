@@ -159,7 +159,12 @@ class VisionService : AccessibilityService() {
         val width = original.width; val height = original.height
         captureWidth = width; captureHeight = height
         val overlayBounds = Rect()
-        overlay?.getGlobalVisibleRect(overlayBounds)
+        overlay?.let { panel ->
+            // getGlobalVisibleRect uses this overlay window's origin, while OCR boxes use display coordinates.
+            val location = IntArray(2)
+            panel.getLocationOnScreen(location)
+            overlayBounds.set(location[0], location[1], location[0] + panel.width, location[1] + panel.height)
+        }
         recognizer.process(InputImage.fromBitmap(image, 0))
             .addOnSuccessListener { result ->
                 if (!isCurrent(generation, target)) return@addOnSuccessListener
