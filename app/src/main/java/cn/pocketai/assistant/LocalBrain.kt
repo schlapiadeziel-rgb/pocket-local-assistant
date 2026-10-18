@@ -11,6 +11,7 @@ import com.google.ai.edge.litertlm.Engine
 import com.google.ai.edge.litertlm.EngineConfig
 import com.google.ai.edge.litertlm.SamplerConfig
 import cn.pocketai.assistant.core.DownloadControl
+import cn.pocketai.assistant.core.DownloadPaused
 import cn.pocketai.assistant.core.ResumableDownload
 import java.io.File
 import java.io.FileOutputStream
@@ -34,14 +35,17 @@ object LocalBrain {
     private var engine: Engine? = null
     fun modelFile(context: Context) = File(context.filesDir, "models/assistant.litertlm")
     fun isBusy() = busy.get()
-    private fun task(callback: (String) -> Unit, action: () -> String) {
+    private fun task(callback: (String) -> Unit, successStatus: String? = null, action: () -> String) {
         if (!busy.compareAndSet(false, true)) { callback("模型正忙，请稍后重试"); return }
         executor.execute {
-            val result = try { action() } catch (e: Exception) { "未完成：${DownloadNetwork.explain(e)}" }
+            var completed = false
+            val result = try { action().also { completed = true } }
+            catch (e: DownloadPaused) { DownloadNetwork.explain(e) }
+            catch (e: Exception) { "未完成：${DownloadNetwork.explain(e)}" }
             catch (_: OutOfMemoryError) { unloadNow(); "内存不足，请关闭其他应用或换更小的模型" }
             catch (_: UnsatisfiedLinkError) { "模型运行库无法加载，请确认安装 ARM64 正式版本" }
             finally { busy.set(false) }
-            status = result.take(160)
+            status = if (completed) successStatus ?: result.take(160) else result.take(160)
             main.post { callback(result) }
         }
     }
@@ -63,7 +67,7 @@ object LocalBrain {
     fun ask(context: Context, question: String, screen: String?, callback: (String) -> Unit) {
         if (isBusy()) { callback("模型正忙，请稍后重试"); return }
         answer = "正在本机生成，请稍候……"
-        task({ result -> answer = result; callback(result) }) {
+        task({ result -> answer = result; callback(result) }, successStatus = "模型就绪 · CPU 双线程 · 已生成本地回答") {
         check(question.isNotBlank()) { "请先输入问题" }
         status = "本地模型生成中"
         val config = ConversationConfig(
@@ -108,8 +112,15 @@ object LocalBrain {
     fun partialBytes(context: Context) = ResumableDownload.partialBytes(File(modelFile(context).parentFile, "download.part"), MODEL_BYTES, MODEL_SHA256)
     fun download(context: Context, mirror: Boolean = false, callback: (String) -> Unit) = task(callback) {
         val dest = modelFile(context); dest.parentFile!!.mkdirs()
-        check(dest.parentFile!!.usableSpace > MODEL_BYTES - partialBytes(context) + 128 * 1024 * 1024) { "存储空间不足，请清理后重试" }
         val temp = File(dest.parentFile, "download.part")
+        if (dest.isFile && dest.length() == MODEL_BYTES) {
+            status = "正在校验已安装模型"
+            if (ResumableDownload.hash(dest) == MODEL_SHA256) {
+                temp.delete(); ResumableDownload.forgetMetadata(temp)
+                return@task "推荐模型已安装并通过校验，无需重复下载"
+            }
+        }
+        check(dest.parentFile!!.usableSpace > MODEL_BYTES - partialBytes(context) + 128 * 1024 * 1024) { "存储空间不足，请清理后重试" }
         val control = DownloadControl(); downloadControl = control
         val url = if (mirror) MODEL_URL.replace("https://huggingface.co/", "https://hf-mirror.com/") else MODEL_URL
         try {
@@ -117,6 +128,7 @@ object LocalBrain {
             ResumableDownload.fetch(temp, MODEL_BYTES, MODEL_SHA256, control, { offset -> DownloadNetwork.open(url, offset) }) { count ->
                 status = if (count == MODEL_BYTES) "正在校验模型 SHA-256" else "下载模型 ${count * 100 / MODEL_BYTES}% · 可暂停续传 · 请保持前台"
             }
+            control.check()
             unloadNow()
             check(temp.renameTo(dest)) { "保存模型失败" }
             ResumableDownload.forgetMetadata(temp)
