@@ -147,4 +147,27 @@ class DirectoryCourseTest {
         val f = completed(4000).let { it.copy(lines = it.lines + ScreenLine("判断题", Box(30, 220, 700, 260))) }
         val m = DirectoryCourseModule(); m.observe(completed(0)); assertTrue(m.observe(f) is Decision.Pause)
     }
+    @Test fun clippedFollowingIconDoesNotHideCurrentPlayingStatus() {
+        val f = frame(next = null).let { it.copy(lines = it.lines.filterNot { line -> line.text.startsWith("时长") },
+            markers = it.markers + ScreenMarker(RowMark.UNKNOWN, Box(900, 960, 980, 972))) }
+        assertEquals(RowMark.PLAYING, TutorialDirectory.read(f)!!.current.mark)
+    }
+    @Test fun clippedNextIconCannotBecomeAnActionableTarget() {
+        val m = DirectoryCourseModule()
+        repeat(3) { n ->
+            val f = completed(n * 4000L).let { it.copy(markers = it.markers.map { marker ->
+                if (marker.kind == RowMark.PLAYABLE) marker.copy(box = Box(900, 1020, 980, 1034)) else marker }) }
+            assertTrue(m.observe(f) is Decision.Wait)
+        }
+    }
+    @Test fun fullSizeAmbiguousIconsStillPreventCurrentRowActions() {
+        val f = frame().let { it.copy(markers = it.markers + ScreenMarker(RowMark.UNKNOWN, Box(900, 880, 980, 960))) }
+        assertEquals(RowMark.UNKNOWN, TutorialDirectory.read(f)!!.current.mark)
+    }
+    @Test fun durationWithOcrIconPrefixStillBoundsTheLastRow() {
+        val f = frame(next = null).let { it.copy(height = 2800,
+            lines = it.lines.map { line -> if (line.text.startsWith("时长")) line.copy(text = "D时长01:00") else line },
+            markers = it.markers + ScreenMarker(RowMark.UNKNOWN, Box(900, 1000, 980, 1080))) }
+        assertEquals(RowMark.PLAYING, TutorialDirectory.read(f)!!.current.mark)
+    }
 }

@@ -102,6 +102,13 @@ data class DirectoryEntry(val id: String, val box: Box, val accented: Boolean, v
 data class TutorialDirectory(val current: DirectoryEntry, val next: DirectoryEntry?, val playerTop: Int, val playerBottom: Int) {
     companion object {
         private val LEAF = Regex("^(\\d{1,3}(?:\\.\\d{1,3}){2,4})(?:\\s|[A-Za-z\\p{IsHan}]).+")
+        private val DURATION = Regex("时长\\s*\\d{1,2}[:：]\\d{2}")
+        private fun intactMarker(box: Box, frame: ScreenFrame): Boolean {
+            val width = box.right - box.left; val height = box.bottom - box.top
+            // This profile uses square status icons. The next row can expose only a thin clipped strip.
+            return box.inside(frame.width, frame.height) && width in 8..512 && height in 8..512 &&
+                width * 4 >= height * 3 && height * 4 >= width * 3
+        }
         fun read(frame: ScreenFrame): TutorialDirectory? {
             if (frame.packageName !in setOf("com.able.wisdomtree", "cn.pocketai.fixture") || frame.height <= frame.width) return null
             val merged = frame.lines.singleOrNull { it.text.replace(Regex("\\s+"), "") == "教程课程提醒" }
@@ -122,10 +129,10 @@ data class TutorialDirectory(val current: DirectoryEntry, val next: DirectoryEnt
             if (entries.map { it.id }.distinct().size != entries.size) return null
             val marked = entries.mapIndexed { index, entry ->
                 val duration = frame.lines.filter { it.box.top > entry.box.top && it.box.top < entry.box.top + frame.height / 8 &&
-                    it.box.left < frame.width / 2 && it.text.replace(" ", "").startsWith("时长") }.minByOrNull { it.box.top }
+                    it.box.left < frame.width / 2 && DURATION.containsMatchIn(it.text) }.minByOrNull { it.box.top }
                 val rowBottom = minOf(entries.getOrNull(index + 1)?.box?.top ?: footer,
                     duration?.box?.bottom?.plus(entry.box.bottom - entry.box.top) ?: (entry.box.top + frame.height / 12))
-                val marker = frame.markers.filter { it.box.x > frame.width * 3 / 4 && it.box.y >= entry.box.top - 12 && it.box.y < rowBottom }.singleOrNull()
+                val marker = frame.markers.filter { intactMarker(it.box, frame) && it.box.x > frame.width * 3 / 4 && it.box.y >= entry.box.top - 12 && it.box.y < rowBottom }.singleOrNull()
                 entry.copy(mark = marker?.kind ?: RowMark.UNKNOWN)
             }
             val current = marked.singleOrNull { it.accented } ?: return null
