@@ -157,11 +157,11 @@ class MainActivity : Activity() {
             card(body) { c ->
                 c.addView(label(module.title, 18f, bold = true)); gap(c, 8)
                 c.addView(label(module.description, 13f, muted)); gap(c)
-                c.addView(button("开始${module.title}", true) {
+                c.addView(button("准备${module.title}浮窗", true) {
                     val service = AssistantState.service
                     if (service == null) { message("请先在系统设置中开启屏幕助手服务"); return@button }
                     if (prefs.getString("target", "").isNullOrBlank()) { selectApp(); return@button }
-                    service.startSession(module.id); launchTarget()
+                    service.prepareSession(module.id)
                 }, LinearLayout.LayoutParams(-1, dp(48)))
             }
         }
@@ -170,7 +170,7 @@ class MainActivity : Activity() {
             gap(c)
             c.addView(button("切换手机媒体静音") { AssistantState.service?.toggleMute() ?: message("请先开启屏幕服务") }, LinearLayout.LayoutParams(-1, dp(48)))
         }
-        body.addView(label("课程模块需亮屏、课程应用在前台，并保持播放时间与下一节按钮可见。它不加速学习进度；题目与验证需本人处理。其他功能可通过模块接口继续加入。", 12f, muted))
+        body.addView(label("先准备对应浮窗，进入课程开始播放后，再点浮窗「开始」。准备浮窗会停留在当前页，避免重新打开课程应用而丢失播放页。课程模块需亮屏、课程应用在前台；题目与验证需本人处理。", 12f, muted))
     }
     private fun selectApp() {
         val intent = Intent(Intent.ACTION_MAIN).addCategory(Intent.CATEGORY_LAUNCHER)

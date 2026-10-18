@@ -101,6 +101,15 @@ class VisionService : AccessibilityService() {
         super.onDestroy()
     }
     private fun foregroundPackage(): String = rootInActiveWindow?.packageName?.toString() ?: ""
+    fun prepareSession(moduleId: String) {
+        val target = AssistantState.prefs(this).getString("target", "") ?: ""
+        if (target.isBlank() || target == packageName) { AssistantState.log("请先选择要观察的应用"); return }
+        sessionId++; AssistantState.running = false
+        module = ModuleRegistry.create(moduleId); module.reset()
+        AssistantState.frameCount = 0; AssistantState.tapCount = 0; AssistantState.clearScreen()
+        AssistantState.log("${module.title}已准备；进入课程并播放后，点浮窗「开始」")
+        showOverlay(); overlay?.keepScreenOn = false
+    }
     fun startSession(moduleId: String) {
         val target = AssistantState.prefs(this).getString("target", "") ?: ""
         if (target.isBlank() || target == packageName) { AssistantState.log("请先选择要观察的应用"); return }
