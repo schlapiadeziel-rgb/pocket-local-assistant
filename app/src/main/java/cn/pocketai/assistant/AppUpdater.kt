@@ -10,11 +10,11 @@ import android.os.Looper
 import android.provider.Settings
 import androidx.core.content.FileProvider
 import cn.pocketai.assistant.core.UpdatePolicy
+import cn.pocketai.assistant.core.DownloadControl
+import cn.pocketai.assistant.core.ResumableDownload
 import org.json.JSONObject
 import java.io.File
-import java.io.FileOutputStream
 import java.net.URL
-import java.security.MessageDigest
 import java.util.concurrent.Executors
 import java.util.concurrent.atomic.AtomicBoolean
 import javax.net.ssl.HttpsURLConnection
@@ -25,6 +25,7 @@ object AppUpdater {
     private val executor = Executors.newSingleThreadExecutor()
     private val main = Handler(Looper.getMainLooper())
     private val busy = AtomicBoolean(false)
+    @Volatile private var downloadControl: DownloadControl? = null
     @Volatile var status = "尚未检查更新"
     @Volatile var available: AvailableUpdate? = null
     private fun connect(url: String, binary: Boolean = false): HttpsURLConnection = (URL(url).openConnection() as HttpsURLConnection).apply {
@@ -76,18 +77,13 @@ object AppUpdater {
                 check(info.getString("tag") == release.getString("tag_name")) { "更新版本标签不匹配" }
                 available = candidate.takeIf { it.versionCode > current }
                 if (available == null) "已经是最新正式版本" else "发现新版本 ${candidate.versionName}，可下载更新"
-            } catch (e: Exception) { available = null; "检查未完成：${e.message}" }
+            } catch (e: Exception) { available = null; "检查未完成：${DownloadNetwork.explain(e)}" }
             status = result; busy.set(false); main.post { callback(result) }
         }
     }
-    private fun sha256(file: File): String {
-        val digest = MessageDigest.getInstance("SHA-256")
-        file.inputStream().use { input -> val buffer = ByteArray(1024 * 1024); while (true) { val n = input.read(buffer); if (n < 0) break; digest.update(buffer, 0, n) } }
-        return digest.digest().joinToString("") { "%02x".format(it) }
-    }
     @Suppress("DEPRECATION")
     private fun verify(context: Context, file: File, expected: AvailableUpdate) {
-        check(file.length() == expected.size && sha256(file) == expected.sha256) { "文件校验失败" }
+        check(file.length() == expected.size && ResumableDownload.hash(file) == expected.sha256) { "文件校验失败" }
         val pm = context.packageManager
         val incoming = pm.getPackageArchiveInfo(file.absolutePath, PackageManager.GET_SIGNING_CERTIFICATES) ?: error("不是有效的 APK")
         val current = pm.getPackageInfo(context.packageName, PackageManager.GET_SIGNING_CERTIFICATES)
@@ -103,27 +99,22 @@ object AppUpdater {
         executor.execute {
             val dir = File(context.filesDir, "updates").apply { mkdirs() }
             val partial = File(dir, "update.part"); val final = File(dir, "update.apk")
+            val control = DownloadControl(); downloadControl = control
             val result = try {
-                check(dir.usableSpace > update.size + 64 * 1024 * 1024) { "存储空间不足" }
-                val c = connect(update.apiUrl, binary = true)
-                try {
-                    check(c.responseCode == 200 && c.url.protocol == "https") { "更新下载失败：HTTP ${c.responseCode}" }
-                    c.inputStream.use { input -> FileOutputStream(partial).use { output ->
-                        val buffer = ByteArray(1024 * 1024); var count = 0L
-                        while (true) {
-                            val n = input.read(buffer); if (n < 0) break
-                            count += n; check(count <= update.size) { "更新包大小超出预期" }; output.write(buffer, 0, n)
-                            status = "更新下载 ${count * 100 / update.size}%"
-                        }; output.fd.sync()
-                    } }
-                } finally { c.disconnect() }
+                check(dir.usableSpace > update.size - ResumableDownload.partialBytes(partial, update.size, update.sha256) + 64 * 1024 * 1024) { "存储空间不足" }
+                ResumableDownload.fetch(partial, update.size, update.sha256, control, { offset -> DownloadNetwork.open(update.apiUrl, offset, github = true) }) { count ->
+                    status = if (count == update.size) "正在校验更新文件与签名" else "更新下载 ${count * 100 / update.size}% · 可暂停续传"
+                }
                 verify(context, partial, update)
+                control.check()
                 check(partial.renameTo(final)) { "更新文件保存失败" }
+                ResumableDownload.forgetMetadata(partial)
                 "更新已下载并通过签名校验，点击安装更新"
-            } catch (e: Exception) { "更新未完成：${e.message}" } finally { partial.delete() }
+            } catch (e: Exception) { "更新未完成：${DownloadNetwork.explain(e)}" } finally { downloadControl = null }
             status = result; busy.set(false); main.post { callback(result) }
         }
     }
+    fun pauseDownload() { downloadControl?.cancel() }
     fun install(activity: Activity): String? {
         val expected = available ?: return "请先检查并下载更新"
         val file = File(activity.filesDir, "updates/update.apk")
@@ -141,13 +132,15 @@ object AppUpdater {
                     if (!activity.isDestroyed && !activity.isFinishing) {
                         AssistantState.service?.pause("准备安装更新，屏幕观察已暂停")
                         val uri = FileProvider.getUriForFile(activity, "${activity.packageName}.updates", file)
-                        activity.startActivity(Intent(Intent.ACTION_VIEW).apply {
-                            setDataAndType(uri, "application/vnd.android.package-archive")
-                            addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
-                        })
+                        try {
+                            activity.startActivity(Intent(Intent.ACTION_VIEW).apply {
+                                setDataAndType(uri, "application/vnd.android.package-archive")
+                                addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                            })
+                        } catch (_: android.content.ActivityNotFoundException) { status = "系统没有可用的安装程序，请从发布页面安装" }
                     }
                 }
-            } catch (e: Exception) { status = "安装未完成：${e.message}" }
+            } catch (e: Exception) { status = "安装未完成：${DownloadNetwork.explain(e)}" }
             finally { busy.set(false) }
         }
         return null

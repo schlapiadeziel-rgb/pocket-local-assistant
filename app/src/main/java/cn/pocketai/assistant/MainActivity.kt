@@ -40,24 +40,44 @@ class MainActivity : Activity() {
     private var updateStatus: TextView? = null
     private var question: EditText? = null
     private var answerView: TextView? = null
-    private var latestAnswer = "回答会在这里显示。生成完全在手机上进行。"
+    private var generateButton: Button? = null
+    private lateinit var scroll: ScrollView
     private var draftQuestion = ""
     private var includeScreen = false
     private val refresh = object : Runnable {
         override fun run() {
-            stateLabel.text = if (AssistantState.service == null) "屏幕服务未开启" else if (AssistantState.running) "正在观察 · ${AssistantState.status}" else AssistantState.status
-            modelStatus?.text = modelDescription()
-            updateStatus?.text = AppUpdater.status
-            logsView?.text = "识别 ${AssistantState.frameCount} 帧 · 点击 ${AssistantState.tapCount} 次\n\n${AssistantState.logs()}"
+            stateLabel.showText(if (AssistantState.service == null) "屏幕服务未开启" else if (AssistantState.running) "正在观察 · ${AssistantState.status}" else AssistantState.status)
+            modelStatus?.showText(modelDescription())
+            updateStatus?.showText(AppUpdater.status)
+            answerView?.showText(LocalBrain.answer)
+            generateButton?.isEnabled = !LocalBrain.isBusy()
+            logsView?.showText("识别 ${AssistantState.frameCount} 帧 · 点击 ${AssistantState.tapCount} 次\n\n${AssistantState.logs()}")
             main.postDelayed(this, 1000)
         }
     }
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        buildShell(); main.post(refresh)
+        tab = savedInstanceState?.getInt("tab", 0)?.coerceIn(0, 3) ?: 0
+        draftQuestion = savedInstanceState?.getString("question").orEmpty()
+        includeScreen = savedInstanceState?.getBoolean("includeScreen", false) ?: false
+        buildShell()
+        savedInstanceState?.getInt("scroll")?.let { y -> scroll.post { scroll.scrollTo(0, y) } }
+    }
+    override fun onSaveInstanceState(outState: Bundle) {
+        outState.putInt("tab", tab)
+        outState.putString("question", question?.text?.toString() ?: draftQuestion)
+        outState.putBoolean("includeScreen", includeScreen)
+        outState.putInt("scroll", scroll.scrollY)
+        super.onSaveInstanceState(outState)
     }
     override fun onDestroy() { main.removeCallbacksAndMessages(null); super.onDestroy() }
-    override fun onResume() { super.onResume(); if (::body.isInitialized && tab == 0) render() }
+    override fun onPause() { main.removeCallbacks(refresh); super.onPause() }
+    override fun onResume() {
+        super.onResume()
+        if (::body.isInitialized && tab == 0) { val y = scroll.scrollY; render(); scroll.post { scroll.scrollTo(0, y) } }
+        main.removeCallbacks(refresh); main.post(refresh)
+    }
+    private fun TextView.showText(value: String) { if (text.toString() != value) text = value }
     private fun dp(v: Int) = (v * resources.displayMetrics.density).toInt()
     private fun rounded(color: Int, radius: Int = 18) = GradientDrawable().apply { setColor(color); cornerRadius = dp(radius).toFloat() }
     private fun column(): LinearLayout = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
@@ -99,7 +119,7 @@ class MainActivity : Activity() {
         stateLabel = label("准备就绪", 12f, accent)
         header.addView(stateLabel)
         shell.addView(header)
-        val scroll = ScrollView(this).apply { isFillViewport = true }
+        scroll = ScrollView(this).apply { isFillViewport = true }
         body = column().apply { setPadding(dp(18), dp(6), dp(18), dp(16)) }
         scroll.addView(body)
         shell.addView(scroll, LinearLayout.LayoutParams(-1, 0, 1f))
@@ -114,7 +134,7 @@ class MainActivity : Activity() {
         setContentView(shell); render()
     }
     private fun render() {
-        body.removeAllViews(); modelStatus = null; logsView = null; question = null; answerView = null; updateStatus = null
+        body.removeAllViews(); modelStatus = null; logsView = null; question = null; answerView = null; updateStatus = null; generateButton = null
         when (tab) { 0 -> features(); 1 -> chat(); 2 -> models(); else -> logs() }
     }
     private fun features() {
@@ -185,33 +205,36 @@ class MainActivity : Activity() {
             c.addView(question, LinearLayout.LayoutParams(-1, -2)); gap(c)
             val screenButton = button(if (includeScreen) "已附带最近识别文字 · 点击取消" else "附带最近识别的屏幕文字") {
                 draftQuestion = question?.text?.toString() ?: ""
-                if (AssistantState.lastScreenText.isBlank()) { message("请先在所选应用中运行屏幕观察，再返回这里"); return@button }
+                if (!includeScreen && AssistantState.lastScreenText.isBlank()) { message("请先在所选应用中运行屏幕观察，再返回这里"); return@button }
                 includeScreen = !includeScreen; render()
             }
             c.addView(screenButton, LinearLayout.LayoutParams(-1, dp(48))); gap(c)
-            c.addView(button("在手机上生成回答", true) { ask() }, LinearLayout.LayoutParams(-1, dp(48)))
+            generateButton = button("在手机上生成回答", true) { ask() }.apply { isEnabled = !LocalBrain.isBusy() }
+            c.addView(generateButton, LinearLayout.LayoutParams(-1, dp(48)))
         }
         card(body) { c ->
             c.addView(label("回答", 16f, bold = true)); gap(c)
-            answerView = label(latestAnswer, 15f).apply { setTextIsSelectable(true) }
+            answerView = label(LocalBrain.answer, 15f).apply { setTextIsSelectable(true) }
             c.addView(answerView)
         }
         body.addView(label("首版用本地 OCR 提取屏幕文字，再由文字模型理解；不宣称具备完整图像推理。AI 结果可能有误，也不会代你点击或提交。", 12f, muted))
     }
     private fun ask() {
+        if (LocalBrain.isBusy()) { message("模型正忙，请稍后重试"); return }
         val prompt = question?.text?.toString()?.trim().orEmpty()
         if (prompt.isBlank()) { message("请先输入问题"); return }
         draftQuestion = prompt
-        latestAnswer = "正在本机生成，请稍候……"; answerView?.text = latestAnswer
         val screen = if (includeScreen) AssistantState.lastScreenText.takeIf { it.isNotBlank() } else null
         LocalBrain.ask(applicationContext, prompt, screen) { result ->
-            latestAnswer = result
-            if (!isDestroyed) answerView?.text = result
+            if (!isDestroyed) { answerView?.showText(result); generateButton?.isEnabled = !LocalBrain.isBusy() }
         }
+        answerView?.showText(LocalBrain.answer); generateButton?.isEnabled = false
     }
     private fun modelDescription(): String {
         val file = LocalBrain.modelFile(this)
-        return "${LocalBrain.status}\n${if (file.isFile) "模型文件：${file.length() / 1024 / 1024} MB" else "尚未安装大语言模型"}"
+        val partial = LocalBrain.partialBytes(this)
+        return "${LocalBrain.status}\n${if (file.isFile) "模型文件：${file.length() / 1024 / 1024} MB" else "尚未安装大语言模型"}" +
+            if (partial > 0) "\n已保留下载：${partial / 1024 / 1024} MB，可继续下载" else ""
     }
     private fun models() {
         body.addView(label("模型与设备", 28f, bold = true)); gap(body, 18)
@@ -224,9 +247,10 @@ class MainActivity : Activity() {
             c.addView(label(LocalBrain.MODEL_NAME, 18f, bold = true)); gap(c)
             c.addView(label("推荐文件约 585 MB。首次下载需要联网，之后识别和推理可离线运行。下载会校验固定 SHA-256。", 13f, muted)); gap(c)
             modelStatus = label(modelDescription(), 13f, accent); c.addView(modelStatus); gap(c)
-            c.addView(button("下载推荐模型", true) {
+            c.addView(button("下载 / 继续下载推荐模型", true) {
+                if (LocalBrain.isBusy()) { message("模型正忙，请稍后重试"); return@button }
                 AlertDialog.Builder(this).setTitle("下载约 585 MB 模型")
-                    .setMessage("建议使用 Wi-Fi，并保持本应用前台。源站无法连接时可选择第三方 hf-mirror.com 镜像；两者均校验同一固定 SHA-256，不符合就拒绝安装。下载站会收到常规网络请求信息。")
+                    .setMessage("建议使用 Wi-Fi，并保持本应用前台。中断和暂停会保留进度，再次下载可续传。源站无法连接时可选择第三方 hf-mirror.com 镜像；两者均校验同一固定 SHA-256，不符合就拒绝安装。下载站会收到常规网络请求信息。")
                     .setPositiveButton("源站下载") { _, _ -> LocalBrain.download(applicationContext) { message(it) } }
                     .setNeutralButton("镜像下载") { _, _ -> LocalBrain.download(applicationContext, mirror = true) { message(it) } }
                     .setNegativeButton("取消", null).show()
@@ -234,9 +258,9 @@ class MainActivity : Activity() {
             rowButtons(c, "导入模型" to {
                 if (LocalBrain.isBusy()) { message("模型正忙，请稍后重试"); return@to }
                 startActivityForResult(Intent(Intent.ACTION_OPEN_DOCUMENT).apply { type = "*/*"; addCategory(Intent.CATEGORY_OPENABLE) }, 101)
-            }, "取消下载" to { LocalBrain.cancelDownload() })
+            }, "暂停下载" to { LocalBrain.cancelDownload() })
             gap(c)
-            rowButtons(c, "加载并自检" to { LocalBrain.load(applicationContext) { message(it) } }, "释放模型内存" to { LocalBrain.unload { message(it) } })
+            rowButtons(c, "加载模型" to { LocalBrain.load(applicationContext) { message(it) } }, "释放模型内存" to { LocalBrain.unload { message(it) } })
         }
         card(body) { c ->
             c.addView(label("屏幕文字模型已内置", 16f, bold = true)); gap(c, 8)
@@ -247,11 +271,13 @@ class MainActivity : Activity() {
             c.addView(label("应用更新 · $version", 18f, bold = true)); gap(c, 8)
             c.addView(label("从项目的 GitHub 正式发布页获取更新。下载后校验 SHA-256、包名、版本和安装签名，再由系统确认安装。", 13f, muted)); gap(c)
             updateStatus = label(AppUpdater.status, 13f, accent); c.addView(updateStatus); gap(c)
-            rowButtons(c, "检查更新" to { AppUpdater.check(applicationContext) { message(it) } }, "下载更新" to { AppUpdater.download(applicationContext) { message(it) } })
+            rowButtons(c, "检查更新" to { AppUpdater.check(applicationContext) { message(it) } }, "下载 / 继续更新" to { AppUpdater.download(applicationContext) { message(it) } })
+            gap(c)
+            c.addView(button("暂停更新下载") { AppUpdater.pauseDownload() }, LinearLayout.LayoutParams(-1, dp(48)))
             gap(c)
             rowButtons(c, "安装更新" to { AppUpdater.install(this)?.let { message(it) } }, "发布页面" to { startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(cn.pocketai.assistant.core.UpdatePolicy.PAGE))) })
         }
-        body.addView(label("iQOO 8 Pro 首次使用建议先加载自检，再试短文本。持续运行会耗电、发热；本版本尚未完成该机型的实机验证。", 12f, muted))
+        body.addView(label("首次使用建议先加载模型，再试短文本。持续运行会耗电、发热；可随时释放模型内存。", 12f, muted))
     }
     @Deprecated("Platform compatibility")
     override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {

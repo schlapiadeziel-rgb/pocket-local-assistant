@@ -4,6 +4,7 @@ import android.accessibilityservice.AccessibilityService
 import android.accessibilityservice.GestureDescription
 import android.app.KeyguardManager
 import android.content.Context
+import android.content.res.Configuration
 import android.graphics.Bitmap
 import android.graphics.Color
 import android.graphics.Path
@@ -17,6 +18,9 @@ import android.os.PowerManager
 import android.os.SystemClock
 import android.view.Display
 import android.view.Gravity
+import android.view.MotionEvent
+import android.view.ViewConfiguration
+import android.view.WindowInsets
 import android.view.View
 import android.view.WindowManager
 import android.view.accessibility.AccessibilityEvent
@@ -42,6 +46,9 @@ class VisionService : AccessibilityService() {
     private var overlay: LinearLayout? = null
     private var caption: TextView? = null
     private var pauseButton: Button? = null
+    private var muteButton: Button? = null
+    private var overlayParams: WindowManager.LayoutParams? = null
+    private var dragging = false
     private var scanBusy = false
     private var sessionId = 0
     private var screenshotFailures = 0
@@ -80,6 +87,11 @@ class VisionService : AccessibilityService() {
         }
     }
     override fun onInterrupt() { pause("无障碍服务被系统中断") }
+    override fun onConfigurationChanged(newConfig: Configuration) {
+        super.onConfigurationChanged(newConfig)
+        sessionId++; module.reset()
+        overlay?.post { positionOverlay() }
+    }
     override fun onDestroy() {
         stopSession("屏幕服务已关闭")
         main.removeCallbacksAndMessages(null)
@@ -104,10 +116,10 @@ class VisionService : AccessibilityService() {
     fun stopSession(reason: String = "已停止") {
         pause(reason); restoreVolume(); AssistantState.clearScreen()
         overlay?.let { try { (getSystemService(WINDOW_SERVICE) as WindowManager).removeView(it) } catch (_: IllegalArgumentException) {} }
-        overlay = null; caption = null; pauseButton = null
+        overlay = null; caption = null; pauseButton = null; muteButton = null; overlayParams = null; dragging = false
     }
     private fun scan() {
-        if (scanBusy) return
+        if (scanBusy || dragging) return
         if ((getSystemService(KEYGUARD_SERVICE) as KeyguardManager).isKeyguardLocked) { pause("手机已锁屏，观察已暂停"); return }
         val power = getSystemService(POWER_SERVICE) as PowerManager
         if (power.currentThermalStatus >= PowerManager.THERMAL_STATUS_SEVERE) { pause("手机温度偏高，已暂停以降低负载"); return }
@@ -140,7 +152,7 @@ class VisionService : AccessibilityService() {
             }
         }) } catch (_: SecurityException) { scanBusy = false; pause("截图权限已失效，请重新检查屏幕服务") }
     }
-    private fun isCurrent(generation: Int, target: String) = generation == sessionId && AssistantState.running && foregroundPackage() == target
+    private fun isCurrent(generation: Int, target: String) = generation == sessionId && !dragging && AssistantState.running && foregroundPackage() == target
     private fun recognize(original: Bitmap, generation: Int, target: String) {
         val ratio = minOf(1f, 1600f / maxOf(original.width, original.height))
         val image = if (ratio < 1f) Bitmap.createScaledBitmap(original, (original.width * ratio).toInt(), (original.height * ratio).toInt(), true) else original
@@ -218,7 +230,11 @@ class VisionService : AccessibilityService() {
         val panel = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL; setPadding(12, 8, 12, 8); setBackgroundColor(Color.rgb(23, 65, 61)); alpha = 0.94f
         }
-        caption = TextView(this).apply { setTextColor(Color.WHITE); textSize = 12f; maxLines = 3; setTypeface(null, Typeface.BOLD) }
+        caption = TextView(this).apply {
+            setTextColor(Color.WHITE); textSize = 12f; maxLines = 3; setTypeface(null, Typeface.BOLD)
+            setPadding(0, (8 * density).toInt(), 0, (8 * density).toInt())
+            contentDescription = "状态与浮窗拖动区域"
+        }
         panel.addView(caption, LinearLayout.LayoutParams((230 * density).toInt(), LinearLayout.LayoutParams.WRAP_CONTENT))
         val buttons = LinearLayout(this)
         pauseButton = Button(this).apply {
@@ -226,20 +242,71 @@ class VisionService : AccessibilityService() {
             setOnClickListener { if (AssistantState.running) pause() else startSession(module.id) }
         }
         buttons.addView(pauseButton, LinearLayout.LayoutParams(0, (45 * density).toInt(), 1f))
-        buttons.addView(Button(this).apply { text = "静音"; textSize = 12f; setOnClickListener { toggleMute() } }, LinearLayout.LayoutParams(0, (45 * density).toInt(), 1f))
+        muteButton = Button(this).apply { text = "静音"; textSize = 12f; setOnClickListener { toggleMute() } }
+        buttons.addView(muteButton, LinearLayout.LayoutParams(0, (45 * density).toInt(), 1f))
         buttons.addView(Button(this).apply { text = "停止"; textSize = 12f; setOnClickListener { stopSession() } }, LinearLayout.LayoutParams(0, (45 * density).toInt(), 1f))
         panel.addView(buttons)
         val params = WindowManager.LayoutParams(WindowManager.LayoutParams.WRAP_CONTENT, WindowManager.LayoutParams.WRAP_CONTENT,
             WindowManager.LayoutParams.TYPE_ACCESSIBILITY_OVERLAY,
             WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or WindowManager.LayoutParams.FLAG_NOT_TOUCH_MODAL,
-            PixelFormat.TRANSLUCENT).apply { gravity = Gravity.TOP or Gravity.END; y = (48 * density).toInt() }
+            PixelFormat.TRANSLUCENT).apply {
+                gravity = Gravity.TOP or Gravity.LEFT
+                x = AssistantState.prefs(this@VisionService).getInt("overlayX", resources.displayMetrics.widthPixels - (240 * density).toInt())
+                y = AssistantState.prefs(this@VisionService).getInt("overlayY", (48 * density).toInt())
+            }
         (getSystemService(WINDOW_SERVICE) as WindowManager).addView(panel, params)
-        overlay = panel
+        overlay = panel; overlayParams = params
+        installDragHandle(caption!!)
+        panel.post { positionOverlay() }
         updateOverlay()
     }
+    private fun positionOverlay() {
+        val panel = overlay ?: return
+        val params = overlayParams ?: return
+        val wm = getSystemService(WINDOW_SERVICE) as WindowManager
+        val metrics = wm.currentWindowMetrics
+        val bars = metrics.windowInsets.getInsetsIgnoringVisibility(WindowInsets.Type.systemBars() or WindowInsets.Type.displayCutout())
+        params.x = params.x.coerceIn(0, (metrics.bounds.width() - bars.left - bars.right - panel.width).coerceAtLeast(0))
+        params.y = params.y.coerceIn(0, (metrics.bounds.height() - bars.top - bars.bottom - panel.height).coerceAtLeast(0))
+        wm.updateViewLayout(panel, params)
+    }
+    private fun installDragHandle(handle: TextView) {
+        var downX = 0f; var downY = 0f; var originX = 0; var originY = 0; var moved = false
+        val threshold = ViewConfiguration.get(this).scaledTouchSlop
+        handle.setOnClickListener { AssistantState.log("拖动浮窗顶部可调整位置"); updateOverlay() }
+        handle.setOnTouchListener { view, event ->
+            val params = overlayParams ?: return@setOnTouchListener false
+            when (event.actionMasked) {
+                MotionEvent.ACTION_DOWN -> {
+                    downX = event.rawX; downY = event.rawY; originX = params.x; originY = params.y
+                    moved = false; dragging = true
+                    // Invalidate the screenshot before moving its exclusion mask.
+                    sessionId++; module.reset()
+                    true
+                }
+                MotionEvent.ACTION_MOVE -> {
+                    val dx = (event.rawX - downX).toInt(); val dy = (event.rawY - downY).toInt()
+                    if (kotlin.math.abs(dx) > threshold || kotlin.math.abs(dy) > threshold) moved = true
+                    if (moved) { params.x = originX + dx; params.y = originY + dy; positionOverlay() }
+                    true
+                }
+                MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> {
+                    dragging = false
+                    if (moved) AssistantState.prefs(this).edit().putInt("overlayX", params.x).putInt("overlayY", params.y).apply()
+                    else if (event.actionMasked == MotionEvent.ACTION_UP) view.performClick()
+                    true
+                }
+                else -> false
+            }
+        }
+    }
     fun updateOverlay() {
-        caption?.text = "随身 AI · ${module.title}\n${AssistantState.status}"
-        pauseButton?.text = if (AssistantState.running) "暂停" else "开始"
+        val text = "随身 AI · 拖动顶部可移动\n${AssistantState.status}"
+        if (caption?.text?.toString() != text) caption?.text = text
+        val action = if (AssistantState.running) "暂停" else "开始"
+        if (pauseButton?.text?.toString() != action) pauseButton?.text = action
+        val mute = if (originalVolume == null) "静音" else "恢复"
+        if (muteButton?.text?.toString() != mute) muteButton?.text = mute
         overlay?.keepScreenOn = AssistantState.running
     }
 }
