@@ -24,6 +24,7 @@ import android.widget.EditText
 import android.widget.LinearLayout
 import android.widget.ScrollView
 import android.widget.TextView
+import android.widget.Switch
 import cn.pocketai.assistant.core.ModuleRegistry
 
 class MainActivity : Activity() {
@@ -153,6 +154,24 @@ class MainActivity : Activity() {
                 startActivity(Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS))
             }, LinearLayout.LayoutParams(-1, dp(48)))
         }
+        card(body) { c ->
+            c.addView(label("随堂练习自动答题", 18f, bold = true)); gap(c, 8)
+            c.addView(label("视频弹题中的单选题、判断题由本地模型选择选项，核对结果后关闭弹窗、继续观察播放。题目、选项和结果都留在手机上；模型可能答错，识别不完整或结果不符时会暂停。", 13f, muted)); gap(c)
+            c.addView(Switch(this).apply {
+                text = "自动答题"; textSize = 16f; setTextColor(ink)
+                isChecked = prefs.getBoolean("autoPractice", false)
+                contentDescription = "随堂练习自动答题开关"
+                setOnCheckedChangeListener { _, enabled ->
+                    prefs.edit().putBoolean("autoPractice", enabled).apply()
+                    AssistantState.service?.pause("自动答题设置已更改，请重新开始")
+                    if (enabled && !LocalBrain.modelFile(this@MainActivity).isFile) message("请先在模型页安装推荐模型，再开始观察")
+                }
+            }, LinearLayout.LayoutParams(-1, dp(52)))
+            gap(c)
+            c.addView(button("加载本地答题模型") {
+                LocalBrain.load(applicationContext) { result -> if (!isDestroyed) message(result) }
+            }, LinearLayout.LayoutParams(-1, dp(48)))
+        }
         ModuleRegistry.available().forEach { module ->
             card(body) { c ->
                 c.addView(label(module.title, 18f, bold = true)); gap(c, 8)
@@ -170,7 +189,7 @@ class MainActivity : Activity() {
             gap(c)
             c.addView(button("切换手机媒体静音") { AssistantState.service?.toggleMute() ?: message("请先开启屏幕服务") }, LinearLayout.LayoutParams(-1, dp(48)))
         }
-        body.addView(label("先准备对应浮窗，进入课程开始播放后，再点浮窗「开始」。准备浮窗会停留在当前页，避免重新打开课程应用而丢失播放页。课程模块需亮屏、课程应用在前台；题目与验证需本人处理。", 12f, muted))
+        body.addView(label("先准备对应浮窗，进入课程开始播放后，再点浮窗「开始」。准备浮窗会停留在当前页。课程模块需亮屏、课程应用在前台；自动答题开关仅处理已识别的随堂单选和判断，其余题型或验证会暂停。", 12f, muted))
     }
     private fun selectApp() {
         val intent = Intent(Intent.ACTION_MAIN).addCategory(Intent.CATEGORY_LAUNCHER)
@@ -217,7 +236,7 @@ class MainActivity : Activity() {
             answerView = label(LocalBrain.answer, 15f).apply { setTextIsSelectable(true) }
             c.addView(answerView)
         }
-        body.addView(label("首版用本地 OCR 提取屏幕文字，再由文字模型理解；不宣称具备完整图像推理。AI 结果可能有误，也不会代你点击或提交。", 12f, muted))
+        body.addView(label("本地 OCR 提取屏幕文字，再由文字模型理解；不宣称具备完整图像推理。本问答页不执行点击；课程中的随堂练习可在功能页单独开启自动答题。", 12f, muted))
     }
     private fun ask() {
         if (LocalBrain.isBusy()) { message("模型正忙，请稍后重试"); return }

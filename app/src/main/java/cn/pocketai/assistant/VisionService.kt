@@ -38,6 +38,8 @@ import cn.pocketai.assistant.core.TextAccent
 import cn.pocketai.assistant.core.RowMarkerVision
 import cn.pocketai.assistant.core.RowMark
 import cn.pocketai.assistant.core.ScreenMarker
+import cn.pocketai.assistant.core.PracticeAction
+import cn.pocketai.assistant.core.PracticeQuizController
 import com.google.mlkit.vision.common.InputImage
 import com.google.mlkit.vision.text.TextRecognition
 import com.google.mlkit.vision.text.chinese.ChineseTextRecognizerOptions
@@ -48,6 +50,7 @@ class VisionService : AccessibilityService() {
     private val captureExecutor = Executors.newSingleThreadExecutor()
     private val recognizer = TextRecognition.getClient(ChineseTextRecognizerOptions.Builder().build())
     private var module: AssistantModule = ModuleRegistry.create("observe")
+    private val practice = PracticeQuizController()
     private var overlay: LinearLayout? = null
     private var caption: TextView? = null
     private var pauseButton: Button? = null
@@ -85,7 +88,7 @@ class VisionService : AccessibilityService() {
             val foreground = foregroundPackage()
             val target = AssistantState.prefs(this).getString("target", "") ?: ""
             if (foreground != lastForeground && foreground != target) {
-                sessionId++; module.reset()
+                sessionId++; module.reset(); practice.reset()
             }
             lastForeground = foreground
             if (foreground.isNotEmpty() && foreground != target && foreground != packageName) {
@@ -99,7 +102,7 @@ class VisionService : AccessibilityService() {
     override fun onInterrupt() { pause("无障碍服务被系统中断") }
     override fun onConfigurationChanged(newConfig: Configuration) {
         super.onConfigurationChanged(newConfig)
-        sessionId++; module.reset()
+        sessionId++; module.reset(); practice.reset()
         overlay?.post { positionOverlay() }
     }
     override fun onDestroy() {
@@ -113,7 +116,7 @@ class VisionService : AccessibilityService() {
     fun prepareSession(moduleId: String) {
         val target = AssistantState.prefs(this).getString("target", "") ?: ""
         if (target.isBlank() || target == packageName) { AssistantState.log("请先选择要观察的应用"); return }
-        sessionId++; AssistantState.running = false
+        sessionId++; AssistantState.running = false; practice.reset()
         module = ModuleRegistry.create(moduleId); module.reset()
         AssistantState.frameCount = 0; AssistantState.tapCount = 0; AssistantState.clearScreen()
         AssistantState.log("${module.title}已准备；进入课程并播放后，点浮窗「开始」")
@@ -122,13 +125,13 @@ class VisionService : AccessibilityService() {
     fun startSession(moduleId: String) {
         val target = AssistantState.prefs(this).getString("target", "") ?: ""
         if (target.isBlank() || target == packageName) { AssistantState.log("请先选择要观察的应用"); return }
-        module = ModuleRegistry.create(moduleId); module.reset(); sessionId++
+        module = ModuleRegistry.create(moduleId); module.reset(); practice.reset(); sessionId++
         AssistantState.running = true; screenshotFailures = 0; lastReason = ""
         AssistantState.frameCount = 0; AssistantState.tapCount = 0; AssistantState.clearScreen()
         showOverlay(); AssistantState.log("已开始${module.title}；请打开所选应用并手动开始播放")
     }
     fun pause(reason: String = "已暂停") {
-        sessionId++; AssistantState.running = false
+        sessionId++; AssistantState.running = false; practice.reset()
         AssistantState.log(reason); updateOverlay()
         overlay?.keepScreenOn = false
     }
@@ -206,7 +209,26 @@ class VisionService : AccessibilityService() {
                 }
                 val frame = ScreenFrame(lines, width, height, target, SystemClock.elapsedRealtime(), markers)
                 AssistantState.lastScreenText = frame.text; AssistantState.recognizedLines = lines.size; AssistantState.frameCount++
-                when (val decision = module.observe(frame)) {
+                val autoPractice = module.id != "observe" && AssistantState.prefs(this).getBoolean("autoPractice", false)
+                val action = if (autoPractice) practice.observe(frame) else null
+                val decision = when (action) {
+                    is PracticeAction.Solve -> {
+                        module.reset()
+                        if (!LocalBrain.modelFile(this).isFile) {
+                            pause("请先安装本地答题模型"); return@addOnSuccessListener
+                        }
+                        if (LocalBrain.isBusy()) {
+                            pause("本地模型正忙，请稍后重新开始"); return@addOnSuccessListener
+                        }
+                        LocalBrain.solvePractice(applicationContext, action.question.prompt()) { answer ->
+                            if (isCurrent(generation, target)) practice.provideAnswer(action.request, answer)
+                        }
+                        Decision.Wait("本地模型正在解答随堂练习")
+                    }
+                    is PracticeAction.Observe -> { module.reset(); action.decision }
+                    null -> module.observe(frame)
+                }
+                when (decision) {
                     is Decision.Pause -> pause(decision.reason)
                     is Decision.Wait -> { if (decision.reason != lastReason) { lastReason = decision.reason; AssistantState.log(decision.reason) } }
                     is Decision.Tap -> {
@@ -342,7 +364,7 @@ class VisionService : AccessibilityService() {
                     downX = event.rawX; downY = event.rawY; originX = params.x; originY = params.y
                     moved = false; dragging = true
                     // Invalidate the screenshot before moving its exclusion mask.
-                    sessionId++; module.reset()
+                    sessionId++; module.reset(); practice.reset()
                     true
                 }
                 MotionEvent.ACTION_MOVE -> {
