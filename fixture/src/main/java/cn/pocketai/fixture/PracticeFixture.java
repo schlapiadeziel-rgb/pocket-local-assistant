@@ -17,7 +17,7 @@ public class PracticeFixture extends Activity {
     private int dp(int n) { return (int) (n * getResources().getDisplayMetrics().density); }
     private TextView text(String value, int size) {
         TextView view = new TextView(this); view.setText(value); view.setTextSize(size);
-        view.setTextColor(0xff243b36); view.setPadding(dp(18), dp(6), dp(18), dp(6)); return view;
+        view.setTextColor(0xff243b36); view.setPadding(dp(36), dp(6), dp(36), dp(6)); return view;
     }
     private void gap(LinearLayout parent, int height) { parent.addView(new View(this), new LinearLayout.LayoutParams(1, dp(height))); }
     @Override public void onCreate(Bundle saved) { super.onCreate(saved); render(); }
