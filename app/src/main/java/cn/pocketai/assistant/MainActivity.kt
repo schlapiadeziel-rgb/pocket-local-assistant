@@ -25,6 +25,10 @@ import android.widget.LinearLayout
 import android.widget.ScrollView
 import android.widget.TextView
 import android.widget.Switch
+import android.widget.ListView
+import android.widget.ArrayAdapter
+import android.text.Editable
+import android.text.TextWatcher
 import cn.pocketai.assistant.core.ModuleRegistry
 
 class MainActivity : Activity() {
@@ -198,14 +202,34 @@ class MainActivity : Activity() {
             .distinctBy { it.activityInfo.packageName }
             .sortedBy { it.loadLabel(packageManager).toString() }
         if (apps.isEmpty()) { message("未找到可启动应用"); return }
-        AlertDialog.Builder(this).setTitle("选择你要观察的应用")
-            .setItems(apps.map { it.loadLabel(packageManager).toString() }.toTypedArray()) { _, which ->
+        val panel = column()
+        val search = EditText(this).apply { hint = "搜索应用名称"; setSingleLine(true); textSize = 16f }
+        panel.addView(search, LinearLayout.LayoutParams(-1, dp(52)))
+        val list = ListView(this)
+        panel.addView(list, LinearLayout.LayoutParams(-1, dp(380)))
+        var filtered = apps
+        val dialog = AlertDialog.Builder(this).setTitle("选择你要观察的应用")
+            .setView(panel).setNegativeButton("取消", null).create()
+        fun showMatches() {
+            val query = search.text.toString().trim()
+            filtered = apps.filter { it.loadLabel(packageManager).toString().contains(query, true) || it.activityInfo.packageName.contains(query, true) }
+            list.adapter = ArrayAdapter(this, android.R.layout.simple_list_item_1, filtered.map { it.loadLabel(packageManager).toString() })
+        }
+        list.setOnItemClickListener { _, _, which, _ ->
                 AssistantState.service?.stopSession("观察对象已更改，请重新开始")
-                val selected = apps[which]
+                val selected = filtered.getOrNull(which) ?: return@setOnItemClickListener
                 AssistantState.prefs(this).edit().putString("target", selected.activityInfo.packageName)
                     .putString("targetLabel", selected.loadLabel(packageManager).toString()).apply()
+                AssistantState.log("观察对象：${selected.loadLabel(packageManager)}")
+                dialog.dismiss()
                 render()
-            }.setNegativeButton("取消", null).show()
+        }
+        search.addTextChangedListener(object : TextWatcher {
+            override fun beforeTextChanged(s: CharSequence?, start: Int, count: Int, after: Int) {}
+            override fun onTextChanged(s: CharSequence?, start: Int, before: Int, count: Int) { showMatches() }
+            override fun afterTextChanged(s: Editable?) {}
+        })
+        showMatches(); dialog.show()
     }
     private fun launchTarget() {
         val target = AssistantState.prefs(this).getString("target", "") ?: ""
