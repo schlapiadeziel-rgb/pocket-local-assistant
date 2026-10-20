@@ -138,4 +138,17 @@ class PracticeQuizTest {
         assertTrue(CourseModule().observe(frame()) is Decision.Pause)
         assertTrue(DirectoryCourseModule().observe(frame()) is Decision.Pause)
     }
+    @Test fun newQuestionImmediatelyAfterCloseStartsFreshInference() {
+        val c = PracticeQuizController(); val old = solving(c); c.provideAnswer(old.request, "B")
+        c.observe(frame(8000)); c.observe(frame(12000, result = "B")); c.observe(frame(16000, result = "B"))
+        val next = frame(20000, truth = true, stem = "2 × 3 = 6，这个等式正确吗？")
+        assertTrue(decision(c.observe(next)) is Decision.Wait)
+        assertTrue(decision(c.observe(next.copy(at = 24000))) is Decision.Wait)
+        val solve = c.observe(next.copy(at = 28000)) as PracticeAction.Solve
+        assertNotEquals(old.request, solve.request)
+        c.provideAnswer(old.request, "B")
+        assertTrue(decision(c.observe(next.copy(at = 32000))) is Decision.Wait)
+        c.provideAnswer(solve.request, "A")
+        assertTrue(decision(c.observe(next.copy(at = 36000))) is Decision.Tap)
+    }
 }

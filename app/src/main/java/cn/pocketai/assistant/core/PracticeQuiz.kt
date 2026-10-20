@@ -144,6 +144,10 @@ class PracticeQuizController {
             active = Active(question, serial, frame.at)
             return PracticeAction.Solve(serial, question)
         }
+        if (current.closing >= 0 && current.question.id != question.id) {
+            reset()
+            return wait("上一题已关闭，正在核对新练习")
+        }
         if (current.question.id != question.id) return pause("题目已经改变，已丢弃旧答案")
         if (!samePositions(current.question, question)) return pause("选项位置改变，请重新开始核对")
         if (current.closing >= 0) return if (frame.at - current.closing > 12_000) pause("弹窗未关闭，请手动检查") else wait("等待练习弹窗关闭")
