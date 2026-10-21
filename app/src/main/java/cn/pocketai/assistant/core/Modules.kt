@@ -29,13 +29,15 @@ object ScreenGuard {
     private val practiceLabels = setOf("单选题", "判断题")
     private val blockers = listOf("异常脚本", "安全验证", "滑块", "验证码", "人脸识别", "身份验证", "登录已过期", "重新登录", "同时播放多个", "考试中", "开始考试", "提交试卷", "支付密码", "确认支付", "转账", "单选题", "多选题", "判断题", "请作答", "随堂测验", "随堂测试", "课中测试", "给你出题", "提交答案")
     fun blocked(text: String): String? {
-        val normalized = text.replace(Regex("\\s+"), "")
+        val normalized = normalizeLabels(text)
         return blockers.firstOrNull { normalized.contains(it) }
     }
     fun nonPracticeBlocked(text: String): String? {
-        val normalized = text.replace(Regex("\\s+"), "")
+        val normalized = normalizeLabels(text)
         return blockers.firstOrNull { it !in practiceLabels && normalized.contains(it) }
     }
+    private fun normalizeLabels(text: String) = text.replace(Regex("\\s+"), "")
+        .replace('單', '单').replace('選', '选').replace('題', '题').replace('斷', '断')
 }
 
 class CourseModule : AssistantModule {

@@ -37,6 +37,18 @@ class PracticeQuizTest {
         val q = PracticeQuizParser.read(frame(truth = true, split = false))!!
         assertEquals(PracticeKind.BOOLEAN, q.kind); assertEquals(listOf("对", "错"), q.options.map { it.text })
     }
+    @Test fun traditionalOcrHeadersMatchButRemainBlockedWhenPracticeIsOff() {
+        for (header in listOf("单选題", "單選題", "單选题")) {
+            val f = frame().let { it.copy(lines = it.lines.map { row -> if (row.text == "单选题") row.copy(text = header) else row }) }
+            assertTrue(PracticeQuizParser.hasQuestion(f))
+            assertEquals(PracticeKind.SINGLE, PracticeQuizParser.read(f)!!.kind)
+            assertEquals("单选题", ScreenGuard.blocked(f.text))
+            assertNull(ScreenGuard.nonPracticeBlocked(f.text))
+        }
+        val f = frame(truth = true).let { it.copy(lines = it.lines.map { row -> if (row.text == "判断题") row.copy(text = "判斷題") else row }) }
+        assertEquals(PracticeKind.BOOLEAN, PracticeQuizParser.read(f)!!.kind)
+        assertEquals("判断题", ScreenGuard.blocked(f.text))
+    }
     @Test fun readsNumericLabelsWithoutSpacesAndOutOfOrderWrappedNotice() {
         val f = frame(split = false)
         val lines = f.lines.filterNot { it.text.startsWith("弹题") }.map {

@@ -24,13 +24,19 @@ private fun compact(text: String) = normalized(text).replace(Regex("\\s+"), "")
 
 /** A profile for the visible, explicitly ungraded in-video practice dialog. */
 object PracticeQuizParser {
+    private fun kindOf(text: String): PracticeKind? = when (compact(text)
+        .replace('單', '单').replace('選', '选').replace('題', '题').replace('斷', '断')) {
+        "单选题" -> PracticeKind.SINGLE
+        "判断题" -> PracticeKind.BOOLEAN
+        else -> null
+    }
     private val option = Regex("^[（(]?([A-F])[）)]?(?:[.、:：．)）\\s]+(.*)|([\\p{IsHan}0-9].*)|$)")
     private val result = Regex("^正确答案\\s*[:：]\\s*([A-F]?)$")
     fun supported(frame: ScreenFrame) = frame.packageName in setOf("com.able.wisdomtree", "cn.pocketai.fixture") && frame.height > frame.width
-    fun hasQuestion(frame: ScreenFrame) = frame.lines.any { compact(it.text) in setOf("单选题", "判断题") }
+    fun hasQuestion(frame: ScreenFrame) = frame.lines.any { kindOf(it.text) != null }
     fun read(frame: ScreenFrame): PracticeQuestion? {
         if (!supported(frame)) return null
-        val header = frame.lines.singleOrNull { compact(it.text) in setOf("单选题", "判断题") } ?: return null
+        val header = frame.lines.singleOrNull { kindOf(it.text) != null } ?: return null
         // OCR blocks may be returned out of reading order, including wrapped footer text.
         val text = compact(frame.lines.sortedWith(compareBy({ it.box.top }, { it.box.left })).joinToString(" ") { it.text })
         // Neither exams nor arbitrary screens can opt themselves in with a question label alone.
@@ -72,7 +78,7 @@ object PracticeQuizParser {
             val end = maxOf(line.box.bottom, fragments.maxOfOrNull { it.box.bottom } ?: line.box.bottom)
             PracticeOption(letter, value, Box(line.box.left, line.box.top, right, end))
         }
-        val kind = if (compact(header.text) == "判断题") PracticeKind.BOOLEAN else PracticeKind.SINGLE
+        val kind = kindOf(header.text) ?: return null
         if (kind == PracticeKind.BOOLEAN && (options.size != 2 || options.map { compact(it.text) }.toSet() !in
                 listOf(setOf("对", "错"), setOf("正确", "错误"), setOf("True", "False")))) return null
         if (stem.length + options.sumOf { it.text.length } > 1500) return null
