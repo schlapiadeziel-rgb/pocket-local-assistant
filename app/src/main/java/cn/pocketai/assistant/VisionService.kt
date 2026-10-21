@@ -225,6 +225,7 @@ class VisionService : AccessibilityService() {
                             pause("本地模型正忙，请稍后重新开始"); return@addOnSuccessListener
                         }
                         LocalBrain.solvePractice(applicationContext, action.question.prompt()) { answer ->
+                            if (target == "cn.pocketai.fixture") android.util.Log.i("PocketPractice", "fixtureAnswer=" + answer.take(300).replace("\n", "\\n"))
                             if (isCurrent(generation, target)) practice.provideAnswer(action.request, answer)
                         }
                         Decision.Wait("本地模型正在解答随堂练习")

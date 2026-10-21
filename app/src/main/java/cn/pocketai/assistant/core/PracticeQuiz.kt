@@ -94,7 +94,7 @@ object PracticeAnswer {
         val letter = when {
             value.matches(Regex("[A-F]")) -> value
             value.matches(Regex("\"[A-F]\"")) -> value.substring(1, 2)
-            else -> Regex("\\{\\s*\"answer\"\\s*:\\s*\"([A-F])\"\\s*}").matchEntire(value)?.groupValues?.get(1)
+            else -> Regex("\\{\\s*\"answer\"\\s*:\\s*\"([A-F])\"\\s*\\}").matchEntire(value)?.groupValues?.get(1)
         }
         return letter?.takeIf { it in labels }
     }
