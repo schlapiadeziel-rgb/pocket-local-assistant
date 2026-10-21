@@ -212,6 +212,8 @@ class VisionService : AccessibilityService() {
                 val frame = ScreenFrame(lines, width, height, target, SystemClock.elapsedRealtime(), markers)
                 AssistantState.lastScreenText = frame.text; AssistantState.recognizedLines = lines.size; AssistantState.frameCount++
                 val autoPractice = module.id != "observe" && AssistantState.prefs(this).getBoolean("autoPractice", false)
+                if (AssistantState.frameCount == 1) android.util.Log.i("PocketPractice",
+                    "target=$target size=${width}x${height} enabled=$autoPractice supported=${cn.pocketai.assistant.core.PracticeQuizParser.supported(frame)} question=${cn.pocketai.assistant.core.PracticeQuizParser.hasQuestion(frame)}")
                 val action = if (autoPractice) practice.observe(frame) else null
                 val decision = when (action) {
                     is PracticeAction.Solve -> {
