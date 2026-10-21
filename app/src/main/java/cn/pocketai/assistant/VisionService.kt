@@ -129,6 +129,8 @@ class VisionService : AccessibilityService() {
         AssistantState.running = true; screenshotFailures = 0; lastReason = ""
         AssistantState.frameCount = 0; AssistantState.tapCount = 0; AssistantState.clearScreen()
         showOverlay(); AssistantState.log("已开始${module.title}；请打开所选应用并手动开始播放")
+        if (module.id != "observe") AssistantState.log(if (AssistantState.prefs(this).getBoolean("autoPractice", false))
+            "随堂练习自动答题已开启" else "随堂练习自动答题已关闭，遇题将暂停")
     }
     fun pause(reason: String = "已暂停") {
         sessionId++; AssistantState.running = false; practice.reset()

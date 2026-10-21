@@ -24,14 +24,15 @@ private fun compact(text: String) = normalized(text).replace(Regex("\\s+"), "")
 
 /** A profile for the visible, explicitly ungraded in-video practice dialog. */
 object PracticeQuizParser {
-    private val option = Regex("^[（(]?([A-F])[）)]?(?:[.、:：．)）\\s]+(.*)|([\\p{IsHan}].*)|$)")
+    private val option = Regex("^[（(]?([A-F])[）)]?(?:[.、:：．)）\\s]+(.*)|([\\p{IsHan}0-9].*)|$)")
     private val result = Regex("^正确答案\\s*[:：]\\s*([A-F]?)$")
     fun supported(frame: ScreenFrame) = frame.packageName in setOf("com.able.wisdomtree", "cn.pocketai.fixture") && frame.height > frame.width
     fun hasQuestion(frame: ScreenFrame) = frame.lines.any { compact(it.text) in setOf("单选题", "判断题") }
     fun read(frame: ScreenFrame): PracticeQuestion? {
         if (!supported(frame)) return null
         val header = frame.lines.singleOrNull { compact(it.text) in setOf("单选题", "判断题") } ?: return null
-        val text = compact(frame.text)
+        // OCR blocks may be returned out of reading order, including wrapped footer text.
+        val text = compact(frame.lines.sortedWith(compareBy({ it.box.top }, { it.box.left })).joinToString(" ") { it.text })
         // Neither exams nor arbitrary screens can opt themselves in with a question label alone.
         if (!text.contains("弹题是为了帮助同学巩固知识点") || !text.contains("不会影响") || !text.contains("成绩")) return null
         if (header.box.y !in frame.height / 8..frame.height / 2) return null

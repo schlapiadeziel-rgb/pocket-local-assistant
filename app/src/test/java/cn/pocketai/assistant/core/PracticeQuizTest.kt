@@ -37,6 +37,18 @@ class PracticeQuizTest {
         val q = PracticeQuizParser.read(frame(truth = true, split = false))!!
         assertEquals(PracticeKind.BOOLEAN, q.kind); assertEquals(listOf("对", "错"), q.options.map { it.text })
     }
+    @Test fun readsNumericLabelsWithoutSpacesAndOutOfOrderWrappedNotice() {
+        val f = frame(split = false)
+        val lines = f.lines.filterNot { it.text.startsWith("弹题") }.map {
+            if (it.text.matches(Regex("[A-C] [4-6]"))) it.copy(text = it.text.replace(" ", "")) else it
+        } + listOf(
+            ScreenLine("到大家作业和考试的成绩。", Box(110, 2160, 990, 2220)),
+            ScreenLine("弹题是为了帮助同学巩固知识点，不会", Box(110, 2020, 990, 2080)),
+            ScreenLine("影响", Box(110, 2090, 300, 2150)))
+        val q = PracticeQuizParser.read(f.copy(lines = lines.reversed()))!!
+        assertEquals(listOf("4", "5", "6"), q.options.map { it.text })
+        assertEquals("2 + 3 的计算结果是多少？", q.stem)
+    }
     @Test fun requiresExplicitUngradedNoticeAndKnownPortraitApp() {
         assertNull(PracticeQuizParser.read(frame(notice = false)))
         assertNull(PracticeQuizParser.read(frame().copy(packageName = "unrelated.app")))
